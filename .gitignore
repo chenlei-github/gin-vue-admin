@@ -41,3 +41,8 @@ web/pnpm-lock.yaml
 *.db
 *.sqlite
 *.sqlite3
+_logs
+trekin-main/_cacache
+trekin-main/_update-notifier-last-checked
+web/_cacache
+web/_update-notifier-last-checked
