@@ -1,17 +1,17 @@
 package response
 
-import "time"
+//import "time"
 
 // MonthlyTrend 月度趋势数据
 type MonthlyTrend struct {
-	Date   string  `json:"date"`   // YYYY-MM格式
-	Revenue float64 `json:"revenue"`
-	SearchVolume *int `json:"searchVolume,omitempty"` // 仅市场级别有
+	Date         string  `json:"date"` // YYYY-MM格式
+	Revenue      float64 `json:"revenue"`
+	SearchVolume *int    `json:"searchVolume,omitempty"` // 仅市场级别有
 }
 
 // ProductSalesTrend 商品销售趋势
 type ProductSalesTrend struct {
-	Date  string  `json:"date"`  // YYYY-MM格式
+	Date  string  `json:"date"` // YYYY-MM格式
 	Sales float64 `json:"sales"`
 }
 
@@ -43,8 +43,8 @@ type MarketMetrics struct {
 
 // MarketListItem 市场列表项
 type MarketListItem struct {
-	ID      string        `json:"id"`      // market_slug
-	Name    string        `json:"name"`    // market_name
+	ID      string        `json:"id"`   // market_slug
+	Name    string        `json:"name"` // market_name
 	Metrics MarketMetrics `json:"metrics"`
 }
 
@@ -60,9 +60,9 @@ type BrandSummary struct {
 
 // MarketDetail 市场详情
 type MarketDetail struct {
-	ID      string        `json:"id"`
-	Name    string        `json:"name"`
-	Metrics MarketMetrics `json:"metrics"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Metrics MarketMetrics  `json:"metrics"`
 	Brands  []BrandSummary `json:"brands"`
 }
 
