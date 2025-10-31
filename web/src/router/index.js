@@ -25,6 +25,33 @@ const routes = [
     component: () => import('@/view/example/upload/scanUpload.vue')
   },
   {
+    path: '/markets',
+    name: 'MarketList',
+    meta: {
+      title: '市场列表',
+      keepAlive: true
+    },
+    component: () => import('@/view/brandtrekin/display/market-list.vue')
+  },
+  {
+    path: '/markets/:id',
+    name: 'MarketDetail',
+    meta: {
+      title: '市场详情',
+      keepAlive: false
+    },
+    component: () => import('@/view/brandtrekin/display/market-detail.vue')
+  },
+  {
+    path: '/markets/:marketId/brands/:brandName',
+    name: 'BrandDetail',
+    meta: {
+      title: '品牌详情',
+      keepAlive: false
+    },
+    component: () => import('@/view/brandtrekin/display/brand-detail.vue')
+  },
+  {
     path: '/:catchAll(.*)',
     meta: {
       closeTab: true

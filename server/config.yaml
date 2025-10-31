@@ -140,10 +140,10 @@ mysql:
     prefix: ""
     port: "3306"
     config: charset=utf8mb4&parseTime=True&loc=Local
-    db-name: trekin-bi
-    username: root
-    password: "123456"
-    path: 127.0.0.1
+    db-name: brandtrekin
+    username: brandtrekin
+    password: "cl@2025@!"
+    path: rm-wz95yyq2c56dwroo92o.rwlb.rds.aliyuncs.com
     engine: ""
     log-mode: error
     max-idle-conns: 10

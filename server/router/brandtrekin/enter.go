@@ -13,6 +13,8 @@ type RouterGroup struct {
 	BtBrandMonthlyTrendRouter
 	BtMarketMonthlyTrendRouter
 	BtImportLogRouter
+	BtImportRouter
+	BtDisplayRouter
 }
 
 var (
@@ -26,4 +28,6 @@ var (
 	btBrandMonthlyTrendApi    = api.ApiGroupApp.BrandtrekinApiGroup.BtBrandMonthlyTrendApi
 	btMarketMonthlyTrendApi   = api.ApiGroupApp.BrandtrekinApiGroup.BtMarketMonthlyTrendApi
 	btImportLogApi            = api.ApiGroupApp.BrandtrekinApiGroup.BtImportLogApi
+	btImportApi               = api.ApiGroupApp.BrandtrekinApiGroup.BtImportApi
+	btDisplayApi              = api.ApiGroupApp.BrandtrekinApiGroup.BtDisplayApi
 )

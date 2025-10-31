@@ -11,4 +11,7 @@ type ServiceGroup struct {
 	BtBrandMonthlyTrendService
 	BtMarketMonthlyTrendService
 	BtImportLogService
+	BtImportService
+	BtAggregateService
+	BtDisplayService
 }

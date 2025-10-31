@@ -13,6 +13,8 @@ type ApiGroup struct {
 	BtBrandMonthlyTrendApi
 	BtMarketMonthlyTrendApi
 	BtImportLogApi
+	BtImportApi
+	BtDisplayApi
 }
 
 var (
@@ -26,4 +28,6 @@ var (
 	btBrandMonthlyTrendService    = service.ServiceGroupApp.BrandtrekinServiceGroup.BtBrandMonthlyTrendService
 	btMarketMonthlyTrendService   = service.ServiceGroupApp.BrandtrekinServiceGroup.BtMarketMonthlyTrendService
 	btImportLogService            = service.ServiceGroupApp.BrandtrekinServiceGroup.BtImportLogService
+	btImportService               = service.ServiceGroupApp.BrandtrekinServiceGroup.BtImportService
+	btDisplayService              = service.ServiceGroupApp.BrandtrekinServiceGroup.BtDisplayService
 )
