@@ -21,6 +21,12 @@ func (s *BtMarketRouter) InitBtMarketRouter(Router *gin.RouterGroup,PublicRouter
 	{
 		btMarketRouterWithoutRecord.GET("findBtMarket", btMarketApi.FindBtMarket)        // 根据ID获取市场管理
 		btMarketRouterWithoutRecord.GET("getBtMarketList", btMarketApi.GetBtMarketList)  // 获取市场管理列表
+		btMarketRouterWithoutRecord.GET("generateSlugFromName", btMarketApi.GenerateSlugFromName)  // 根据市场名称生成slug
+		btMarketRouterWithoutRecord.GET("validateSlugUnique", btMarketApi.ValidateSlugUnique)  // 校验slug唯一性
+		btMarketRouterWithoutRecord.GET("validateDeleteMarket", btMarketApi.ValidateDeleteMarket)  // 删除前市场名称校验
+	}
+	{
+		btMarketRouterWithoutRecord.PUT("toggleMarketStatus", btMarketApi.ToggleMarketStatus)  // 切换市场状态
 	}
 	{
 	    btMarketRouterWithoutAuth.GET("getBtMarketPublic", btMarketApi.GetBtMarketPublic)  // 市场管理开放接口

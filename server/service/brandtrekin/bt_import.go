@@ -1,18 +1,22 @@
 package brandtrekin
 
 import (
+	"bytes"
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/brandtrekin"
 	"github.com/xuri/excelize/v2"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 	"gorm.io/gorm"
 )
 
@@ -23,8 +27,8 @@ type ImportResult struct {
 	Success  bool        `json:"success"`
 	Total    int         `json:"total"`
 	Errors   []RowError  `json:"errors"`
-	Preview  interface{} `json:"preview"`  // 预览数据（前5条）
-	FullData interface{} `json:"-"`        // 完整数据（不序列化到JSON）
+	Preview  interface{} `json:"preview"` // 预览数据（前5条）
+	FullData interface{} `json:"-"`       // 完整数据（不序列化到JSON）
 }
 
 // RowError 行错误
@@ -35,16 +39,16 @@ type RowError struct {
 
 // BrandWithSocial 品牌及其社交媒体信息
 type BrandWithSocial struct {
-	BrandName         string
-	Website           string
-	YoutubeUrl        string
+	BrandName          string
+	Website            string
+	YoutubeUrl         string
 	YoutubeSubscribers int
-	InstagramUrl      string
+	InstagramUrl       string
 	InstagramFollowers int
-	FacebookUrl       string
-	FacebookFollowers int
-	RedditUrl         string
-	RedditPosts       int
+	FacebookUrl        string
+	FacebookFollowers  int
+	RedditUrl          string
+	RedditPosts        int
 }
 
 // ProductInfo 商品信息
@@ -99,7 +103,19 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 	}
 	defer f.Close()
 
-	sheetName := f.GetSheetName(0)
+	// 识别Report sheet（跳过Method sheet）
+	sheetNames := f.GetSheetList()
+	var sheetName string
+	for _, name := range sheetNames {
+		if name == "Report" {
+			sheetName = name
+			break
+		}
+	}
+	if sheetName == "" {
+		return nil, errors.New("找不到Report sheet")
+	}
+
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		return nil, fmt.Errorf("读取工作表失败: %v", err)
@@ -124,7 +140,6 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 
 	for i := 1; i < len(rows); i++ {
 		row := rows[i]
-		rowNumber := i + 1
 
 		if len(row) == 0 || row[colMap["Brand"]] == "" {
 			continue
@@ -143,7 +158,10 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 			brand.Website = strings.TrimSpace(row[idx])
 		}
 
-		if idx, ok := colMap["YouTube"]; ok && idx < len(row) {
+		// 处理YouTube数据（支持"YouTube URL"和"YouTube"两种列名）
+		if idx, ok := colMap["YouTube URL"]; ok && idx < len(row) {
+			brand.YoutubeUrl = strings.TrimSpace(row[idx])
+		} else if idx, ok := colMap["YouTube"]; ok && idx < len(row) {
 			brand.YoutubeUrl = strings.TrimSpace(row[idx])
 		}
 		if idx, ok := colMap["YouTube Subscribers"]; ok && idx < len(row) && row[idx] != "" {
@@ -152,7 +170,10 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 			}
 		}
 
-		if idx, ok := colMap["Instagram"]; ok && idx < len(row) {
+		// 处理Instagram数据（支持"Instagram URL"和"Instagram"两种列名）
+		if idx, ok := colMap["Instagram URL"]; ok && idx < len(row) {
+			brand.InstagramUrl = strings.TrimSpace(row[idx])
+		} else if idx, ok := colMap["Instagram"]; ok && idx < len(row) {
 			brand.InstagramUrl = strings.TrimSpace(row[idx])
 		}
 		if idx, ok := colMap["Instagram Followers"]; ok && idx < len(row) && row[idx] != "" {
@@ -161,19 +182,35 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 			}
 		}
 
-		if idx, ok := colMap["Facebook"]; ok && idx < len(row) {
+		// 处理Facebook数据（支持"Facebook URL"和"Facebook"两种列名）
+		if idx, ok := colMap["Facebook URL"]; ok && idx < len(row) {
+			brand.FacebookUrl = strings.TrimSpace(row[idx])
+		} else if idx, ok := colMap["Facebook"]; ok && idx < len(row) {
 			brand.FacebookUrl = strings.TrimSpace(row[idx])
 		}
-		if idx, ok := colMap["Facebook Followers"]; ok && idx < len(row) && row[idx] != "" {
+		// 支持"Facebook Followers/Likes"和"Facebook Followers"两种列名
+		if idx, ok := colMap["Facebook Followers/Likes"]; ok && idx < len(row) && row[idx] != "" {
+			if followers, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
+				brand.FacebookFollowers = followers
+			}
+		} else if idx, ok := colMap["Facebook Followers"]; ok && idx < len(row) && row[idx] != "" {
 			if followers, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
 				brand.FacebookFollowers = followers
 			}
 		}
 
-		if idx, ok := colMap["Reddit"]; ok && idx < len(row) {
+		// 处理Reddit数据（支持"Reddit URL/Search"和"Reddit"两种列名）
+		if idx, ok := colMap["Reddit URL/Search"]; ok && idx < len(row) {
+			brand.RedditUrl = strings.TrimSpace(row[idx])
+		} else if idx, ok := colMap["Reddit"]; ok && idx < len(row) {
 			brand.RedditUrl = strings.TrimSpace(row[idx])
 		}
-		if idx, ok := colMap["Reddit Posts"]; ok && idx < len(row) && row[idx] != "" {
+		// 支持"Reddit Mentions (approx)"和"Reddit Posts"两种列名
+		if idx, ok := colMap["Reddit Mentions (approx)"]; ok && idx < len(row) && row[idx] != "" {
+			if posts, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
+				brand.RedditPosts = posts
+			}
+		} else if idx, ok := colMap["Reddit Posts"]; ok && idx < len(row) && row[idx] != "" {
 			if posts, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
 				brand.RedditPosts = posts
 			}
@@ -196,7 +233,10 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 	}, nil
 }
 
-// ParseGKW 解析Google关键词数据
+// GKWRow 定义GKW CSV文件的行结构（使用map来处理动态列）
+type GKWRow map[string]string
+
+// ParseGKW 解析Google关键词数据（使用gocsv包）
 func (s *BtImportService) ParseGKW(file *multipart.FileHeader) (*ImportResult, error) {
 	src, err := file.Open()
 	if err != nil {
@@ -204,58 +244,180 @@ func (s *BtImportService) ParseGKW(file *multipart.FileHeader) (*ImportResult, e
 	}
 	defer src.Close()
 
-	reader := csv.NewReader(src)
-	rows, err := reader.ReadAll()
+	// 读取文件内容
+	fileBytes, err := io.ReadAll(src)
 	if err != nil {
-		return nil, fmt.Errorf("读取CSV文件失败: %v", err)
+		return nil, fmt.Errorf("读取文件失败: %v", err)
 	}
 
-	if len(rows) < 2 {
-		return nil, errors.New("文件为空或缺少数据行")
+	// 尝试不同的编码：UTF-8 -> GBK -> GB18030
+	encodings := []encoding.Encoding{
+		nil, // UTF-8不需要转换
+		simplifiedchinese.GBK,
+		simplifiedchinese.GB18030,
 	}
 
-	header := rows[0]
-	datePattern := regexp.MustCompile(`^\d{4}-\d{2}$`)
-	var keywords []KeywordInfo
-	var rowErrors []RowError
+	var rows []GKWRow
+	var parseErr error
 
-	for i := 1; i < len(rows); i++ {
-		row := rows[i]
-		rowNumber := i + 1
+	for _, enc := range encodings {
+		var reader io.Reader
+		if enc == nil {
+			// UTF-8，直接读取
+			reader = bytes.NewReader(fileBytes)
+		} else {
+			// 转换编码
+			decoder := enc.NewDecoder()
+			decoded, _, err := transform.Bytes(decoder, fileBytes)
+			if err != nil {
+				continue
+			}
+			reader = bytes.NewReader(decoded)
+		}
 
-		if len(row) == 0 || row[0] == "" {
+		// 使用gocsv解析CSV文件
+		// 先读取原始CSV数据
+		csvReader := csv.NewReader(reader)
+		csvReader.LazyQuotes = true
+		csvReader.TrimLeadingSpace = true
+
+		// 读取所有行
+		records, err := csvReader.ReadAll()
+		if err != nil {
+			parseErr = err
 			continue
 		}
 
-		keyword := strings.TrimSpace(row[0])
+		if len(records) < 2 {
+			parseErr = errors.New("文件为空或缺少数据行")
+			continue
+		}
+
+		// 验证是否包含Keyword列
+		header := records[0]
+		hasKeyword := false
+		for _, col := range header {
+			if strings.TrimSpace(col) == "Keyword" {
+				hasKeyword = true
+				break
+			}
+		}
+
+		if !hasKeyword {
+			parseErr = errors.New("缺少必填列: Keyword")
+			continue
+		}
+
+		// 手动将records转换为map结构
+		rows = make([]GKWRow, 0, len(records)-1)
+		for i := 1; i < len(records); i++ {
+			row := make(GKWRow)
+			for j, col := range header {
+				if j < len(records[i]) {
+					row[strings.TrimSpace(col)] = strings.TrimSpace(records[i][j])
+				}
+			}
+			rows = append(rows, row)
+		}
+
+		// 解析成功，跳出循环
+		parseErr = nil
+		break
+	}
+
+	if parseErr != nil {
+		return nil, fmt.Errorf("解析CSV文件失败，尝试了多种编码: %v", parseErr)
+	}
+
+	if len(rows) == 0 {
+		return nil, errors.New("文件为空或缺少数据行")
+	}
+
+	// 验证数据格式：确保有Keyword列
+	firstRow := rows[0]
+	if _, ok := firstRow["Keyword"]; !ok {
+		return nil, errors.New("缺少必填列: Keyword")
+	}
+
+	// 支持两种日期格式：
+	// 1. "YYYY-MM" (如 "2021-09")
+	// 2. "Searches: Mon YYYY" (如 "Searches: Sep 2021")
+	datePattern1 := regexp.MustCompile(`^\d{4}-\d{2}$`)
+	datePattern2 := regexp.MustCompile(`^Searches:\s+(\w+)\s+(\d{4})$`)
+
+	// 月份名称映射
+	monthMap := map[string]string{
+		"Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
+		"May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
+		"Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12",
+	}
+
+	var keywords []KeywordInfo
+	var rowErrors []RowError
+
+	// 解析每一行数据
+	for i, row := range rows {
+		keyword := row["Keyword"]
 		if keyword == "" {
 			continue
 		}
 
 		var monthlyVolumes []MonthlyVolume
 
-		for j := 1; j < len(header) && j < len(row); j++ {
-			dateStr := strings.TrimSpace(header[j])
+		// 遍历所有列，查找日期列
+		for colName, value := range row {
+			if colName == "Keyword" || colName == "Currency" || colName == "Segmentation" {
+				continue
+			}
 
-			if !datePattern.MatchString(dateStr) {
+			if value == "" {
+				continue
+			}
+
+			// 尝试解析日期格式
+			var date time.Time
+			var dateStr string
+
+			// 格式1: "YYYY-MM"
+			if datePattern1.MatchString(colName) {
+				dateStr = colName
+				var err error
+				date, err = time.Parse("2006-01", dateStr)
+				if err != nil {
+					continue
+				}
+			} else if matches := datePattern2.FindStringSubmatch(colName); matches != nil {
+				// 格式2: "Searches: Mon YYYY"
+				monthName := matches[1]
+				year := matches[2]
+				month, ok := monthMap[monthName]
+				if !ok {
+					continue
+				}
+				dateStr = fmt.Sprintf("%s-%s", year, month)
+				var err error
+				date, err = time.Parse("2006-01", dateStr)
+				if err != nil {
+					continue
+				}
+			} else {
+				// 跳过非日期列
+				continue
+			}
+
+			// 解析搜索量（支持带小数点的数字，如 "14800.0"）
+			volumeFloat, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				// 如果解析失败，记录错误但继续处理
 				rowErrors = append(rowErrors, RowError{
-					Row:   rowNumber,
-					Error: fmt.Sprintf("无效的日期格式: %s", dateStr),
+					Row:   i + 2, // +2 因为跳过了header行，且行号从1开始
+					Error: fmt.Sprintf("列 %s 的值 '%s' 无法解析为数字", colName, value),
 				})
 				continue
 			}
 
-			if row[j] == "" {
-				continue
-			}
-
-			volume, err := strconv.Atoi(strings.TrimSpace(row[j]))
-			if err != nil || volume <= 0 {
-				continue
-			}
-
-			date, err := time.Parse("2006-01", dateStr)
-			if err != nil {
+			volume := int(volumeFloat)
+			if volume <= 0 {
 				continue
 			}
 
@@ -302,73 +464,149 @@ func (s *BtImportService) ParseKeywordHistory(file *multipart.FileHeader) (*Impo
 	}
 	defer f.Close()
 
-	sheetName := f.GetSheetName(0)
-	rows, err := f.GetRows(sheetName)
-	if err != nil {
-		return nil, fmt.Errorf("读取工作表失败: %v", err)
+	// 识别所有History-开头的sheet（排除Notes sheet）
+	sheetNames := f.GetSheetList()
+	var historySheets []string
+	for _, name := range sheetNames {
+		if strings.HasPrefix(name, "History-") && !strings.Contains(name, "Notes") {
+			historySheets = append(historySheets, name)
+		}
 	}
 
-	if len(rows) < 2 {
-		return nil, errors.New("文件为空或缺少数据行")
+	if len(historySheets) == 0 {
+		return nil, errors.New("找不到History sheet")
 	}
 
-	header := rows[0]
-	datePattern := regexp.MustCompile(`^\d{4}-\d{2}$`)
 	var keywords []KeywordInfo
 	var rowErrors []RowError
+	keywordMap := make(map[string]*KeywordInfo) // 用于按关键词分组
 
-	for i := 1; i < len(rows); i++ {
-		row := rows[i]
-		rowNumber := i + 1
-
-		if len(row) == 0 || row[0] == "" {
+	// 遍历所有历史sheet
+	for _, sheetName := range historySheets {
+		rows, err := f.GetRows(sheetName)
+		if err != nil {
+			rowErrors = append(rowErrors, RowError{
+				Row:   0,
+				Error: fmt.Sprintf("读取sheet %s失败: %v", sheetName, err),
+			})
 			continue
 		}
 
-		keyword := strings.TrimSpace(row[0])
-		if keyword == "" {
+		if len(rows) < 3 {
+			continue // 跳过空的sheet
+		}
+
+		// 跳过第1行标题行，第2行是表头（索引1）
+		header := rows[1]
+		colMap := make(map[string]int)
+		for i, col := range header {
+			if col != "" {
+				colMap[col] = i
+			}
+		}
+
+		// 校验必填列（中文列名）
+		keywordCol, hasKeyword := colMap["关键词"]
+		monthCol, hasMonth := colMap["月份"]
+		volumeCol, hasVolume := colMap["月搜索量"]
+
+		if !hasKeyword || !hasMonth || !hasVolume {
+			rowErrors = append(rowErrors, RowError{
+				Row:   0,
+				Error: fmt.Sprintf("Sheet %s 缺少必填列（关键词、月份或月搜索量）", sheetName),
+			})
 			continue
 		}
 
-		var monthlyVolumes []MonthlyVolume
+		// 从sheet名称提取关键词
+		keywordFromSheet := strings.TrimPrefix(sheetName, "History-")
+		keywordFromSheet = strings.TrimSuffix(keywordFromSheet, "-US")
+		keywordFromSheet = strings.TrimSpace(keywordFromSheet)
 
-		for j := 1; j < len(header) && j < len(row); j++ {
-			dateStr := strings.TrimSpace(header[j])
+		// 从第3行开始解析数据（索引2）
+		for i := 2; i < len(rows); i++ {
+			row := rows[i]
 
-			if !datePattern.MatchString(dateStr) {
-				rowErrors = append(rowErrors, RowError{
-					Row:   rowNumber,
-					Error: fmt.Sprintf("无效的日期格式: %s", dateStr),
-				})
+			if len(row) == 0 {
 				continue
 			}
 
-			if row[j] == "" {
+			// 提取月份和搜索量
+			if monthCol >= len(row) || volumeCol >= len(row) {
 				continue
 			}
 
-			volume, err := strconv.Atoi(strings.TrimSpace(row[j]))
-			if err != nil || volume <= 0 {
+			month := row[monthCol]
+			volume := row[volumeCol]
+
+			if month == "" || volume == "" {
 				continue
 			}
 
-			date, err := time.Parse("2006-01", dateStr)
-			if err != nil {
+			// 解析月份格式（可能是 "2025-09" 或其他格式）
+			var date time.Time
+			monthStr := strings.TrimSpace(month)
+			if matched, _ := regexp.MatchString(`^\d{4}-\d{2}$`, monthStr); matched {
+				date, err = time.Parse("2006-01", monthStr)
+				if err != nil {
+					continue
+				}
+			} else {
+				// 尝试其他日期格式
 				continue
 			}
 
-			monthlyVolumes = append(monthlyVolumes, MonthlyVolume{
-				Date:   date,
-				Volume: volume,
-			})
+			volumeNum, err := strconv.Atoi(strings.TrimSpace(volume))
+			if err != nil || volumeNum <= 0 {
+				continue
+			}
+
+			// 获取关键词（优先使用数据行中的关键词，否则使用sheet名称）
+			keyword := keywordFromSheet
+			if keywordCol < len(row) && row[keywordCol] != "" {
+				keyword = strings.TrimSpace(row[keywordCol])
+			}
+
+			// 创建或更新关键词的月度数据
+			key := keyword + "_amazon"
+			if kw, exists := keywordMap[key]; exists {
+				// 检查是否已存在该月份的数据
+				exists := false
+				for j, mv := range kw.MonthlyVolumes {
+					if mv.Date.Year() == date.Year() && mv.Date.Month() == date.Month() {
+						// 更新现有数据（如果新数据更大）
+						if volumeNum > mv.Volume {
+							kw.MonthlyVolumes[j].Volume = volumeNum
+						}
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					kw.MonthlyVolumes = append(kw.MonthlyVolumes, MonthlyVolume{
+						Date:   date,
+						Volume: volumeNum,
+					})
+				}
+			} else {
+				keywordMap[key] = &KeywordInfo{
+					Keyword: keyword,
+					Source:  "amazon",
+					MonthlyVolumes: []MonthlyVolume{
+						{
+							Date:   date,
+							Volume: volumeNum,
+						},
+					},
+				}
+			}
 		}
+	}
 
-		if len(monthlyVolumes) > 0 {
-			keywords = append(keywords, KeywordInfo{
-				Keyword:        keyword,
-				Source:         "amazon",
-				MonthlyVolumes: monthlyVolumes,
-			})
+	// 转换为切片
+	for _, kw := range keywordMap {
+		if len(kw.MonthlyVolumes) > 0 {
+			keywords = append(keywords, *kw)
 		}
 	}
 
@@ -400,52 +638,114 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 	}
 	defer f.Close()
 
-	sheetName := f.GetSheetName(0)
+	// 识别主数据sheet（排除Notes sheet）
+	sheetNames := f.GetSheetList()
+	var sheetName string
+	for _, name := range sheetNames {
+		if strings.HasPrefix(name, "US-") && !strings.Contains(name, "Notes") {
+			sheetName = name
+			break
+		}
+	}
+	if sheetName == "" {
+		return nil, errors.New("找不到主数据sheet")
+	}
+
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		return nil, fmt.Errorf("读取工作表失败: %v", err)
 	}
 
-	if len(rows) < 2 {
-		return nil, errors.New("文件为空或缺少数据行")
+	if len(rows) < 3 {
+		return nil, errors.New("文件为空或缺少数据行（需要至少包含标题行、表头行和数据行）")
 	}
 
-	header := rows[0]
+	// 跳过第1行标题行，第2行是表头（索引1）
+	header := rows[1]
 	colMap := make(map[string]int)
 	for i, col := range header {
-		colMap[col] = i
+		if col != "" {
+			colMap[col] = i
+		}
 	}
 
-	requiredCols := []string{"ASIN", "Title", "Brand"}
-	for _, col := range requiredCols {
-		if _, ok := colMap[col]; !ok {
-			return nil, fmt.Errorf("缺少必填列: %s", col)
+	// 校验必填列（支持中英文列名）
+	asinCol := -1
+	brandCol := -1
+	titleCol := -1
+
+	// 查找ASIN列
+	if idx, ok := colMap["ASIN"]; ok {
+		asinCol = idx
+	} else {
+		for k, idx := range colMap {
+			if strings.Contains(k, "ASIN") {
+				asinCol = idx
+				break
+			}
 		}
+	}
+
+	// 查找品牌列（支持"品牌"或"Brand"）
+	if idx, ok := colMap["品牌"]; ok {
+		brandCol = idx
+	} else if idx, ok := colMap["Brand"]; ok {
+		brandCol = idx
+	} else {
+		for k, idx := range colMap {
+			if strings.Contains(k, "品牌") || strings.Contains(k, "Brand") {
+				brandCol = idx
+				break
+			}
+		}
+	}
+
+	// 查找商品标题列（支持"商品标题"或"Title"）
+	if idx, ok := colMap["商品标题"]; ok {
+		titleCol = idx
+	} else if idx, ok := colMap["Title"]; ok {
+		titleCol = idx
+	} else {
+		for k, idx := range colMap {
+			if strings.Contains(k, "标题") || strings.Contains(k, "Title") {
+				titleCol = idx
+				break
+			}
+		}
+	}
+
+	if asinCol < 0 || brandCol < 0 || titleCol < 0 {
+		return nil, errors.New("缺少必填列: ASIN、品牌/Brand或商品标题/Title")
 	}
 
 	var products []ProductInfo
 	var rowErrors []RowError
 
-	for i := 1; i < len(rows); i++ {
+	// 从第3行开始解析数据（索引2，跳过标题行和表头行）
+	for i := 2; i < len(rows); i++ {
 		row := rows[i]
 		rowNumber := i + 1
 
-		if colMap["ASIN"] >= len(row) || colMap["Title"] >= len(row) || colMap["Brand"] >= len(row) {
+		if len(row) == 0 {
+			continue
+		}
+
+		if asinCol >= len(row) || brandCol >= len(row) || titleCol >= len(row) {
 			rowErrors = append(rowErrors, RowError{
 				Row:   rowNumber,
-				Error: "缺少必填字段（ASIN、Title或Brand）",
+				Error: "缺少必填字段（ASIN、品牌或商品标题）",
 			})
 			continue
 		}
 
-		asin := strings.TrimSpace(row[colMap["ASIN"]])
-		title := strings.TrimSpace(row[colMap["Title"]])
-		brand := strings.TrimSpace(row[colMap["Brand"]])
+		asin := strings.TrimSpace(row[asinCol])
+		brand := strings.TrimSpace(row[brandCol])
+		title := strings.TrimSpace(row[titleCol])
 
-		if asin == "" || title == "" || brand == "" {
+		if asin == "" || brand == "" || title == "" {
 			rowErrors = append(rowErrors, RowError{
 				Row:   rowNumber,
-				Error: "ASIN、Title或Brand不能为空",
+				Error: "ASIN、品牌或商品标题不能为空",
 			})
 			continue
 		}
@@ -456,29 +756,53 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 			Brand: brand,
 		}
 
-		if idx, ok := colMap["Price"]; ok && idx < len(row) && row[idx] != "" {
+		// 提取可选字段（支持中英文列名）
+		// 价格
+		if idx, ok := colMap["价格"]; ok && idx < len(row) && row[idx] != "" {
+			if price, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
+				product.Price = price
+			}
+		} else if idx, ok := colMap["Price"]; ok && idx < len(row) && row[idx] != "" {
 			if price, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
 				product.Price = price
 			}
 		}
 
-		if idx, ok := colMap["Rating"]; ok && idx < len(row) && row[idx] != "" {
+		// 评分
+		if idx, ok := colMap["评分"]; ok && idx < len(row) && row[idx] != "" {
+			if rating, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
+				product.Rating = rating
+			}
+		} else if idx, ok := colMap["Rating"]; ok && idx < len(row) && row[idx] != "" {
 			if rating, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
 				product.Rating = rating
 			}
 		}
 
-		if idx, ok := colMap["Reviews"]; ok && idx < len(row) && row[idx] != "" {
+		// 评论数
+		if idx, ok := colMap["评论数"]; ok && idx < len(row) && row[idx] != "" {
+			if reviews, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
+				product.Reviews = reviews
+			}
+		} else if idx, ok := colMap["Reviews"]; ok && idx < len(row) && row[idx] != "" {
 			if reviews, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
 				product.Reviews = reviews
 			}
 		}
 
-		if idx, ok := colMap["Image"]; ok && idx < len(row) {
+		// 图片URL
+		if idx, ok := colMap["商品主图"]; ok && idx < len(row) {
+			product.ImageUrl = strings.TrimSpace(row[idx])
+		} else if idx, ok := colMap["Image"]; ok && idx < len(row) {
 			product.ImageUrl = strings.TrimSpace(row[idx])
 		}
 
-		if idx, ok := colMap["Monthly Sales"]; ok && idx < len(row) && row[idx] != "" {
+		// 月销量
+		if idx, ok := colMap["月销量"]; ok && idx < len(row) && row[idx] != "" {
+			if sales, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
+				product.MonthlySales = sales
+			}
+		} else if idx, ok := colMap["Monthly Sales"]; ok && idx < len(row) && row[idx] != "" {
 			if sales, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
 				product.MonthlySales = sales
 			}
@@ -501,6 +825,183 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 	}, nil
 }
 
+// parseNumericValue 解析数值，处理各种格式：空格、逗号分隔符、货币符号等
+// 返回 float64 值和是否解析成功
+func parseNumericValue(value string) (float64, bool) {
+	// 去除前后空格
+	value = strings.TrimSpace(value)
+	
+	// 空值返回0
+	if value == "" {
+		return 0, true
+	}
+	
+	// 去除常见的货币符号
+	value = strings.TrimPrefix(value, "$")
+	value = strings.TrimPrefix(value, "￥")
+	value = strings.TrimPrefix(value, "€")
+	value = strings.TrimPrefix(value, "£")
+	value = strings.TrimSpace(value)
+	
+	// 去除千位分隔符（英文逗号）
+	value = strings.ReplaceAll(value, ",", "")
+	
+	// 尝试解析为浮点数
+	result, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	
+	// 确保非负数
+	if result < 0 {
+		return 0, false
+	}
+	
+	return result, true
+}
+
+// processSheet 通用的sheet处理函数，用于处理销量或销售额sheet
+// isVolumeSheet: true表示销量sheet，false表示销售额sheet
+func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVolumeSheet bool, 
+	salesMap map[string]*ProductSalesInfo, datePattern *regexp.Regexp) []RowError {
+	
+	var rowErrors []RowError
+	
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		rowErrors = append(rowErrors, RowError{
+			Row:   0,
+			Error: fmt.Sprintf("读取sheet %s失败: %v", sheetName, err),
+		})
+		return rowErrors
+	}
+	
+	if len(rows) < 2 {
+		return rowErrors
+	}
+	
+	// 第一步：建立列索引映射（只遍历一次表头）
+	header := rows[0]
+	asinCol := -1
+	dateColumns := make(map[int]time.Time) // 列索引 -> 日期
+	
+	for i, col := range header {
+		col = strings.TrimSpace(col)
+		
+		if col == "ASIN" {
+			asinCol = i
+			continue
+		}
+		
+		// 跳过非数据列
+		if col == "图片" || col == "SKU" || col == "URL" || 
+			col == "所属类目" || col == "商品标题" || col == "" {
+			continue
+		}
+		
+		// 提取日期（去除末尾的($)符号）
+		dateStr := strings.TrimSuffix(col, "($)")
+		dateStr = strings.TrimSpace(dateStr)
+		
+		// 匹配日期格式
+		if datePattern.MatchString(dateStr) {
+			if date, err := time.Parse("2006-01", dateStr); err == nil {
+				dateColumns[i] = date
+			}
+		}
+	}
+	
+	// 验证必填列
+	if asinCol < 0 {
+		rowErrors = append(rowErrors, RowError{
+			Row:   0,
+			Error: fmt.Sprintf("Sheet %s 缺少ASIN列", sheetName),
+		})
+		return rowErrors
+	}
+	
+	// 第二步：遍历数据行（从第2行开始）
+	for rowIdx := 1; rowIdx < len(rows); rowIdx++ {
+		row := rows[rowIdx]
+		
+		// 跳过空行或ASIN列超出范围的行
+		if len(row) == 0 || asinCol >= len(row) {
+			continue
+		}
+		
+		asin := strings.TrimSpace(row[asinCol])
+		if asin == "" {
+			continue
+		}
+		
+		// 获取或创建该ASIN的销售数据记录
+		salesInfo, exists := salesMap[asin]
+		if !exists {
+			salesInfo = &ProductSalesInfo{
+				ASIN:         asin,
+				MonthlySales: []MonthlySales{},
+			}
+			salesMap[asin] = salesInfo
+		}
+		
+		// 第三步：遍历所有日期列，提取数据
+		for colIdx, date := range dateColumns {
+			// 获取单元格值
+			var cellValue string
+			if colIdx < len(row) {
+				cellValue = row[colIdx]
+			}
+			
+			// 解析数值
+			numValue, valid := parseNumericValue(cellValue)
+			if !valid {
+				// 记录解析错误（可选）
+				if cellValue != "" {
+					rowErrors = append(rowErrors, RowError{
+						Row:   rowIdx + 1,
+						Error: fmt.Sprintf("ASIN %s 的 %s 列值 '%s' 无法解析为数字", 
+							asin, date.Format("2006-01"), cellValue),
+					})
+				}
+				continue
+			}
+			
+			// 查找或创建该月份的销售记录
+			found := false
+			for j := range salesInfo.MonthlySales {
+				ms := &salesInfo.MonthlySales[j]
+				if ms.Date.Year() == date.Year() && ms.Date.Month() == date.Month() {
+					// 更新对应字段
+					if isVolumeSheet {
+						ms.Units = int(numValue)
+					} else {
+						ms.Sales = numValue
+					}
+					found = true
+					break
+				}
+			}
+			
+			// 如果不存在该月份的记录，创建新记录
+			if !found {
+				newRecord := MonthlySales{
+					Date:  date,
+					Sales: 0,
+					Units: 0,
+				}
+				if isVolumeSheet {
+					newRecord.Units = int(numValue)
+				} else {
+					newRecord.Sales = numValue
+				}
+				salesInfo.MonthlySales = append(salesInfo.MonthlySales, newRecord)
+			}
+		}
+	}
+	
+	return rowErrors
+}
+
 // ParseProductSales 解析商品销售数据
 func (s *BtImportService) ParseProductSales(file *multipart.FileHeader) (*ImportResult, error) {
 	src, err := file.Open()
@@ -515,73 +1016,47 @@ func (s *BtImportService) ParseProductSales(file *multipart.FileHeader) (*Import
 	}
 	defer f.Close()
 
-	sheetName := f.GetSheetName(0)
-	rows, err := f.GetRows(sheetName)
-	if err != nil {
-		return nil, fmt.Errorf("读取工作表失败: %v", err)
+	// 识别两个sheet：产品历史月销量和产品历史月销售额
+	sheetNames := f.GetSheetList()
+	var volumeSheet, revenueSheet string
+	for _, name := range sheetNames {
+		if name == "产品历史月销量" {
+			volumeSheet = name
+		} else if name == "产品历史月销售额" {
+			revenueSheet = name
+		}
 	}
 
-	if len(rows) < 2 {
-		return nil, errors.New("文件为空或缺少数据行")
+	if volumeSheet == "" && revenueSheet == "" {
+		return nil, errors.New("找不到销售数据sheet（产品历史月销量或产品历史月销售额）")
 	}
 
-	header := rows[0]
-	datePattern := regexp.MustCompile(`^\d{4}-\d{2}$`)
-	var productSalesData []ProductSalesInfo
+	// 编译日期正则表达式（只编译一次）
+	datePattern := regexp.MustCompile(`^\d{4}-\d{2}`)
+	
+	// 使用map按ASIN分组，避免重复查找
+	salesMap := make(map[string]*ProductSalesInfo)
 	var rowErrors []RowError
 
-	for i := 1; i < len(rows); i++ {
-		row := rows[i]
-		rowNumber := i + 1
+	// 处理产品历史月销量sheet
+	if volumeSheet != "" {
+		errors := s.processSheet(f, volumeSheet, true, salesMap, datePattern)
+		rowErrors = append(rowErrors, errors...)
+	}
 
-		if len(row) == 0 || row[0] == "" {
-			continue
-		}
+	// 处理产品历史月销售额sheet
+	if revenueSheet != "" {
+		errors := s.processSheet(f, revenueSheet, false, salesMap, datePattern)
+		rowErrors = append(rowErrors, errors...)
+	}
 
-		asin := strings.TrimSpace(row[0])
-		if asin == "" {
-			continue
-		}
-
-		var monthlySales []MonthlySales
-
-		for j := 1; j < len(header) && j < len(row); j++ {
-			dateStr := strings.TrimSpace(header[j])
-
-			if !datePattern.MatchString(dateStr) {
-				rowErrors = append(rowErrors, RowError{
-					Row:   rowNumber,
-					Error: fmt.Sprintf("无效的日期格式: %s", dateStr),
-				})
-				continue
-			}
-
-			if row[j] == "" {
-				continue
-			}
-
-			sales, err := strconv.ParseFloat(strings.TrimSpace(row[j]), 64)
-			if err != nil || sales <= 0 {
-				continue
-			}
-
-			date, err := time.Parse("2006-01", dateStr)
-			if err != nil {
-				continue
-			}
-
-			monthlySales = append(monthlySales, MonthlySales{
-				Date:  date,
-				Sales: sales,
-				Units: 0,
-			})
-		}
-
-		if len(monthlySales) > 0 {
-			productSalesData = append(productSalesData, ProductSalesInfo{
-				ASIN:         asin,
-				MonthlySales: monthlySales,
-			})
+	// 转换为切片并排序月度数据
+	var productSalesData []ProductSalesInfo
+	for _, salesInfo := range salesMap {
+		if len(salesInfo.MonthlySales) > 0 {
+			// 按日期排序月度数据
+			sortMonthlySales(salesInfo.MonthlySales)
+			productSalesData = append(productSalesData, *salesInfo)
 		}
 	}
 
@@ -597,6 +1072,18 @@ func (s *BtImportService) ParseProductSales(file *multipart.FileHeader) (*Import
 		Preview:  preview,
 		FullData: productSalesData,
 	}, nil
+}
+
+// sortMonthlySales 按日期排序月度销售数据
+func sortMonthlySales(sales []MonthlySales) {
+	// 简单的冒泡排序（数据量不大时效率足够）
+	for i := 0; i < len(sales)-1; i++ {
+		for j := i + 1; j < len(sales); j++ {
+			if sales[i].Date.After(sales[j].Date) {
+				sales[i], sales[j] = sales[j], sales[i]
+			}
+		}
+	}
 }
 
 // SaveBrandSocialData 保存品牌和社交媒体数据
@@ -634,11 +1121,11 @@ func (s *BtImportService) SaveBrandSocialData(tx *gorm.DB, marketID int64, brand
 
 		// 创建社交媒体记录
 		socialMedia := []struct {
-			platform   string
-			url        string
+			platform    string
+			url         string
 			subscribers int
-			followers  int
-			posts      int
+			followers   int
+			posts       int
 		}{
 			{"youtube", brandData.YoutubeUrl, brandData.YoutubeSubscribers, 0, 0},
 			{"instagram", brandData.InstagramUrl, 0, brandData.InstagramFollowers, 0},
@@ -660,13 +1147,16 @@ func (s *BtImportService) SaveBrandSocialData(tx *gorm.DB, marketID int64, brand
 			}
 
 			if sm.subscribers > 0 {
-				social.Subscribers = &sm.subscribers
+				subs := int64(sm.subscribers)
+				social.Subscribers = &subs
 			}
 			if sm.followers > 0 {
-				social.Followers = &sm.followers
+				fol := int64(sm.followers)
+				social.Followers = &fol
 			}
 			if sm.posts > 0 {
-				social.Posts = &sm.posts
+				p := int64(sm.posts)
+				social.Posts = &p
 			}
 
 			// 查找或创建社交媒体记录
@@ -785,12 +1275,12 @@ func (s *BtImportService) SaveKeywordData(tx *gorm.DB, marketID int64, keywords 
 			volume := mv.Volume
 			date := mv.Date
 
+			// 转换volume类型
+			volumeInt64 := int64(volume)
 			monthlyVol := brandtrekin.BtKeywordMonthlyVolume{
 				KeywordId: &keywordID,
-				MarketId:  &marketID,
-				Keyword:   &keyword,
 				Date:      &date,
-				Volume:    &volume,
+				Volume:    &volumeInt64,
 			}
 
 			// 查找或创建月度记录
@@ -826,11 +1316,13 @@ func (s *BtImportService) SaveProductSalesData(tx *gorm.DB, productSalesData []P
 			units := ms.Units
 			date := ms.Date
 
+			// 转换units类型
+			unitsInt64 := int64(units)
 			monthlySales := brandtrekin.BtProductMonthlySales{
 				Asin:  &asin,
 				Date:  &date,
 				Sales: &sales,
-				Units: &units,
+				Units: &unitsInt64,
 			}
 
 			// 查找或创建月度销售记录
@@ -856,141 +1348,52 @@ func (s *BtImportService) SaveProductSalesData(tx *gorm.DB, productSalesData []P
 	return nil
 }
 
-// BatchImport 批量导入所有数据（在事务中执行）
-func (s *BtImportService) BatchImport(marketID int64, files map[string]*multipart.FileHeader, replaceMode bool) error {
-	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		// 如果是全量替换模式，删除现有数据
-		if replaceMode {
-			if err := s.deleteMarketData(tx, marketID); err != nil {
-				return fmt.Errorf("删除现有数据失败: %v", err)
-			}
-		}
-
-		// 1. 导入品牌社交媒体数据
-		if file, ok := files["brandSocial"]; ok {
-			result, err := s.ParseBrandSocial(file)
-			if err != nil {
-				return fmt.Errorf("解析品牌社交媒体数据失败: %v", err)
-			}
-
-			if brands, ok := result.FullData.([]BrandWithSocial); ok {
-				if err := s.SaveBrandSocialData(tx, marketID, brands); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 2. 导入商品数据
-		if file, ok := files["productUS"]; ok {
-			result, err := s.ParseProductUS(file)
-			if err != nil {
-				return fmt.Errorf("解析商品数据失败: %v", err)
-			}
-
-			if products, ok := result.FullData.([]ProductInfo); ok {
-				if err := s.SaveProductData(tx, marketID, products); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 3. 导入Google关键词数据
-		if file, ok := files["gkw"]; ok {
-			result, err := s.ParseGKW(file)
-			if err != nil {
-				return fmt.Errorf("解析Google关键词数据失败: %v", err)
-			}
-
-			if keywords, ok := result.FullData.([]KeywordInfo); ok {
-				if err := s.SaveKeywordData(tx, marketID, keywords); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 4. 导入Amazon关键词数据
-		if file, ok := files["keywordHistory"]; ok {
-			result, err := s.ParseKeywordHistory(file)
-			if err != nil {
-				return fmt.Errorf("解析Amazon关键词数据失败: %v", err)
-			}
-
-			if keywords, ok := result.FullData.([]KeywordInfo); ok {
-				if err := s.SaveKeywordData(tx, marketID, keywords); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 5. 导入商品销售数据
-		if file, ok := files["productSales"]; ok {
-			result, err := s.ParseProductSales(file)
-			if err != nil {
-				return fmt.Errorf("解析商品销售数据失败: %v", err)
-			}
-
-			if salesData, ok := result.FullData.([]ProductSalesInfo); ok {
-				if err := s.SaveProductSalesData(tx, salesData); err != nil {
-					return err
-				}
-			}
-		}
-
-		// 6. 导入完成后，自动运行数据聚合计算
-		// 注意：这里使用全局DB而不是事务tx，因为聚合服务自己管理事务
-		aggregateService := BtAggregateService{}
-		if err := aggregateService.RunFullAggregation(marketID); err != nil {
-			return fmt.Errorf("数据聚合计算失败: %v", err)
-		}
-
-		return nil
-	})
-}
-
 // deleteMarketData 删除市场的所有关联数据
+// 注意：使用 Unscoped() 进行物理删除，避免软删除导致的唯一索引冲突
 func (s *BtImportService) deleteMarketData(tx *gorm.DB, marketID int64) error {
 	// 按顺序删除关联数据（从子表到父表）
 
-	// 1. 删除商品月度销售数据
-	if err := tx.Where("asin IN (SELECT asin FROM bt_products WHERE market_id = ?)", marketID).
+	// 1. 删除商品月度销售数据（物理删除）
+	if err := tx.Unscoped().Where("asin IN (SELECT asin FROM bt_products WHERE market_id = ?)", marketID).
 		Delete(&brandtrekin.BtProductMonthlySales{}).Error; err != nil {
 		return err
 	}
 
-	// 2. 删除商品数据
-	if err := tx.Where("market_id = ?", marketID).Delete(&brandtrekin.BtProduct{}).Error; err != nil {
+	// 2. 删除商品数据（物理删除，避免 ASIN 唯一索引冲突）
+	if err := tx.Unscoped().Where("market_id = ?", marketID).Delete(&brandtrekin.BtProduct{}).Error; err != nil {
 		return err
 	}
 
-	// 3. 删除品牌月度趋势数据
-	if err := tx.Where("brand_id IN (SELECT id FROM bt_brands WHERE market_id = ?)", marketID).
+	// 3. 删除品牌月度趋势数据（物理删除）
+	if err := tx.Unscoped().Where("brand_id IN (SELECT id FROM bt_brands WHERE market_id = ? AND deleted_at IS NULL)", marketID).
 		Delete(&brandtrekin.BtBrandMonthlyTrend{}).Error; err != nil {
 		return err
 	}
 
-	// 4. 删除品牌社交媒体数据
-	if err := tx.Where("brand_id IN (SELECT id FROM bt_brands WHERE market_id = ?)", marketID).
+	// 4. 删除品牌社交媒体数据（物理删除）
+	if err := tx.Unscoped().Where("brand_id IN (SELECT id FROM bt_brands WHERE market_id = ? AND deleted_at IS NULL)", marketID).
 		Delete(&brandtrekin.BtBrandSocialMedia{}).Error; err != nil {
 		return err
 	}
 
-	// 5. 删除品牌数据
-	if err := tx.Where("market_id = ?", marketID).Delete(&brandtrekin.BtBrand{}).Error; err != nil {
+	// 5. 删除品牌数据（物理删除，避免品牌名唯一索引冲突）
+	if err := tx.Unscoped().Where("market_id = ?", marketID).Delete(&brandtrekin.BtBrand{}).Error; err != nil {
 		return err
 	}
 
-	// 6. 删除关键词月度搜索量数据
-	if err := tx.Where("market_id = ?", marketID).Delete(&brandtrekin.BtKeywordMonthlyVolume{}).Error; err != nil {
+	// 6. 删除关键词月度搜索量数据（物理删除）
+	if err := tx.Unscoped().Where("keyword_id IN (SELECT id FROM bt_keywords WHERE market_id = ? AND deleted_at IS NULL)", marketID).
+		Delete(&brandtrekin.BtKeywordMonthlyVolume{}).Error; err != nil {
 		return err
 	}
 
-	// 7. 删除关键词数据
-	if err := tx.Where("market_id = ?", marketID).Delete(&brandtrekin.BtKeyword{}).Error; err != nil {
+	// 7. 删除关键词数据（物理删除，避免关键词唯一索引冲突）
+	if err := tx.Unscoped().Where("market_id = ?", marketID).Delete(&brandtrekin.BtKeyword{}).Error; err != nil {
 		return err
 	}
 
-	// 8. 删除市场月度趋势数据
-	if err := tx.Where("market_id = ?", marketID).Delete(&brandtrekin.BtMarketMonthlyTrend{}).Error; err != nil {
+	// 8. 删除市场月度趋势数据（物理删除）
+	if err := tx.Unscoped().Where("market_id = ?", marketID).Delete(&brandtrekin.BtMarketMonthlyTrend{}).Error; err != nil {
 		return err
 	}
 

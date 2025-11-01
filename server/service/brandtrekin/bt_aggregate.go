@@ -71,13 +71,11 @@ func (s *BtAggregateService) AggregateProductToBrand(marketID int64) error {
 			for _, sum := range monthlySums {
 				date := sum.Date
 				revenue := sum.TotalSales
-				units := sum.TotalUnits
 
 				trend := brandtrekin.BtBrandMonthlyTrend{
 					BrandId: &brandID,
 					Date:    &date,
 					Revenue: &revenue,
-					Units:   &units,
 				}
 
 				// 查找或创建
@@ -126,12 +124,11 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 		type MonthlyMarketSum struct {
 			Date       time.Time
 			TotalSales float64
-			TotalUnits int
 		}
 
 		var monthlySums []MonthlyMarketSum
 		err := tx.Model(&brandtrekin.BtBrandMonthlyTrend{}).
-			Select("date, SUM(revenue) as total_sales, SUM(units) as total_units").
+			Select("date, SUM(revenue) as total_sales").
 			Where("brand_id IN ?", brandIDs).
 			Group("date").
 			Order("date").
@@ -142,46 +139,60 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 		}
 
 		// 3. 获取该市场的月度搜索量数据
-		type MonthlySearchVolume struct {
-			Date   time.Time
-			Volume int
-		}
-
-		var searchVolumes []MonthlySearchVolume
-		err = tx.Model(&brandtrekin.BtKeywordMonthlyVolume{}).
-			Select("date, SUM(volume) as volume").
+		// 先获取该市场的所有关键词ID
+		var keywordIDs []int64
+		err = tx.Model(&brandtrekin.BtKeyword{}).
 			Where("market_id = ?", marketID).
-			Group("date").
-			Order("date").
-			Find(&searchVolumes).Error
+			Pluck("id", &keywordIDs).Error
 
 		if err != nil {
-			return fmt.Errorf("聚合搜索量数据失败: %v", err)
+			return fmt.Errorf("获取关键词ID失败: %v", err)
 		}
 
 		// 创建搜索量映射
 		searchVolumeMap := make(map[string]int)
-		for _, sv := range searchVolumes {
-			key := sv.Date.Format("2006-01-02")
-			searchVolumeMap[key] = sv.Volume
+		
+		if len(keywordIDs) > 0 {
+			type MonthlySearchVolume struct {
+				Date   time.Time
+				Volume int
+			}
+
+			var searchVolumes []MonthlySearchVolume
+			err = tx.Model(&brandtrekin.BtKeywordMonthlyVolume{}).
+				Select("date, SUM(volume) as volume").
+				Where("keyword_id IN ?", keywordIDs).
+				Group("date").
+				Order("date").
+				Find(&searchVolumes).Error
+
+			if err != nil {
+				return fmt.Errorf("聚合搜索量数据失败: %v", err)
+			}
+
+			// 填充搜索量映射
+			for _, sv := range searchVolumes {
+				key := sv.Date.Format("2006-01-02")
+				searchVolumeMap[key] = sv.Volume
+			}
 		}
 
 		// 4. 保存或更新市场月度趋势
 		for _, sum := range monthlySums {
 			date := sum.Date
 			revenue := sum.TotalSales
-			units := sum.TotalUnits
 
 			// 获取该月的搜索量
 			dateKey := date.Format("2006-01-02")
 			searchVolume := searchVolumeMap[dateKey]
 
+			// 转换searchVolume类型
+			searchVolumeInt64 := int64(searchVolume)
 			trend := brandtrekin.BtMarketMonthlyTrend{
 				MarketId:     &marketID,
 				Date:         &date,
 				Revenue:      &revenue,
-				Units:        &units,
-				SearchVolume: &searchVolume,
+				SearchVolume: &searchVolumeInt64,
 			}
 
 			// 查找或创建
@@ -209,6 +220,7 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 
 // CalculateBrandCAGR 计算品牌的CAGR（年复合增长率）
 // CAGR = (Ending Value / Beginning Value)^(1/years) - 1
+// 使用前12个月和后12个月的平均值来计算，与trekin-main保持一致
 func (s *BtAggregateService) CalculateBrandCAGR(marketID int64) error {
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		// 获取该市场下的所有品牌
@@ -230,30 +242,48 @@ func (s *BtAggregateService) CalculateBrandCAGR(marketID int64) error {
 				return fmt.Errorf("查询品牌月度趋势失败: %v", err)
 			}
 
-			// 至少需要12个月的数据
-			if len(trends) < 12 {
+			// 至少需要24个月的数据才能计算CAGR（前12个月 + 后12个月）
+			if len(trends) < 24 {
 				continue
 			}
 
-			// 获取第一个月和最后一个月的收入
-			var beginningValue, endingValue float64
-			if trends[0].Revenue != nil {
-				beginningValue = *trends[0].Revenue
-			}
-			if trends[len(trends)-1].Revenue != nil {
-				endingValue = *trends[len(trends)-1].Revenue
+			// 计算前12个月的平均收入
+			var firstYearRevenue float64
+			for i := 0; i < 12 && i < len(trends); i++ {
+				if trends[i].Revenue != nil {
+					firstYearRevenue += *trends[i].Revenue
+				}
 			}
 
-			// 起始值必须大于0
-			if beginningValue <= 0 {
+			// 计算后12个月的平均收入
+			var lastYearRevenue float64
+			startIdx := len(trends) - 12
+			for i := startIdx; i < len(trends); i++ {
+				if trends[i].Revenue != nil {
+					lastYearRevenue += *trends[i].Revenue
+				}
+			}
+
+			// 起始值必须大于1000（设置最小阈值避免极端值）
+			if firstYearRevenue <= 1000 {
 				continue
 			}
 
-			// 计算年数（月数 / 12）
-			years := float64(len(trends)) / 12.0
+			// 计算年数：使用前12个月的中点和后12个月的中点之间的时间差
+			firstDate := trends[5].Date  // 前12个月的中点
+			lastDate := trends[len(trends)-6].Date  // 后12个月的中点
+			if firstDate == nil || lastDate == nil {
+				continue
+			}
+			years := lastDate.Sub(*firstDate).Hours() / (365.25 * 24)
+
+			// 至少需要半年的时间跨度
+			if years < 0.5 {
+				continue
+			}
 
 			// CAGR公式：(Ending Value / Beginning Value)^(1/years) - 1
-			cagr := (math.Pow(endingValue/beginningValue, 1.0/years) - 1.0) * 100.0
+			cagr := (math.Pow(lastYearRevenue/firstYearRevenue, 1.0/years) - 1.0) * 100.0
 
 			// 限制在 -99% 到 +999% 之间
 			cagr = math.Max(-99.0, math.Min(999.0, cagr))
@@ -269,6 +299,7 @@ func (s *BtAggregateService) CalculateBrandCAGR(marketID int64) error {
 }
 
 // CalculateMarketCAGR 计算市场的CAGR
+// 使用前12个月和后12个月的总收入来计算，与trekin-main保持一致
 func (s *BtAggregateService) CalculateMarketCAGR(marketID int64) error {
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		// 获取市场
@@ -287,30 +318,48 @@ func (s *BtAggregateService) CalculateMarketCAGR(marketID int64) error {
 			return fmt.Errorf("查询市场月度趋势失败: %v", err)
 		}
 
-		// 至少需要12个月的数据
-		if len(trends) < 12 {
+		// 至少需要24个月的数据才能计算CAGR（前12个月 + 后12个月）
+		if len(trends) < 24 {
 			return nil
 		}
 
-		// 获取第一个月和最后一个月的收入
-		var beginningValue, endingValue float64
-		if trends[0].Revenue != nil {
-			beginningValue = *trends[0].Revenue
-		}
-		if trends[len(trends)-1].Revenue != nil {
-			endingValue = *trends[len(trends)-1].Revenue
+		// 计算前12个月的总收入
+		var firstYearRevenue float64
+		for i := 0; i < 12 && i < len(trends); i++ {
+			if trends[i].Revenue != nil {
+				firstYearRevenue += *trends[i].Revenue
+			}
 		}
 
-		// 起始值必须大于0
-		if beginningValue <= 0 {
+		// 计算后12个月的总收入
+		var lastYearRevenue float64
+		startIdx := len(trends) - 12
+		for i := startIdx; i < len(trends); i++ {
+			if trends[i].Revenue != nil {
+				lastYearRevenue += *trends[i].Revenue
+			}
+		}
+
+		// 起始值必须大于1000（设置最小阈值避免极端值）
+		if firstYearRevenue <= 1000 {
 			return nil
 		}
 
-		// 计算年数
-		years := float64(len(trends)) / 12.0
+		// 计算年数：使用前12个月的中点和后12个月的中点之间的时间差
+		firstDate := trends[5].Date  // 前12个月的中点
+		lastDate := trends[len(trends)-6].Date  // 后12个月的中点
+		if firstDate == nil || lastDate == nil {
+			return nil
+		}
+		years := lastDate.Sub(*firstDate).Hours() / (365.25 * 24)
 
-		// CAGR公式
-		cagr := (math.Pow(endingValue/beginningValue, 1.0/years) - 1.0) * 100.0
+		// 至少需要半年的时间跨度
+		if years < 0.5 {
+			return nil
+		}
+
+		// CAGR公式：(Ending Value / Beginning Value)^(1/years) - 1
+		cagr := (math.Pow(lastYearRevenue/firstYearRevenue, 1.0/years) - 1.0) * 100.0
 
 		// 限制范围
 		cagr = math.Max(-99.0, math.Min(999.0, cagr))
@@ -325,6 +374,7 @@ func (s *BtAggregateService) CalculateMarketCAGR(marketID int64) error {
 }
 
 // UpdateBrandMetrics 更新品牌的聚合指标
+// 使用数据中最新的12个月，而不是从当前时间往前推12个月
 func (s *BtAggregateService) UpdateBrandMetrics(marketID int64) error {
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		// 获取该市场下的所有品牌
@@ -336,17 +386,23 @@ func (s *BtAggregateService) UpdateBrandMetrics(marketID int64) error {
 		for _, brand := range brands {
 			brandID := int64(brand.ID)
 
-			// 1. 更新总销售额（最近12个月）
-			var totalRevenue float64
-			twelveMonthsAgo := time.Now().AddDate(0, -12, 0)
-
-			err := tx.Model(&brandtrekin.BtBrandMonthlyTrend{}).
-				Select("COALESCE(SUM(revenue), 0)").
-				Where("brand_id = ? AND date >= ?", brandID, twelveMonthsAgo).
-				Scan(&totalRevenue).Error
+			// 1. 获取该品牌的所有月度趋势数据（按日期倒序）
+			var trends []brandtrekin.BtBrandMonthlyTrend
+			err := tx.Where("brand_id = ?", brandID).
+				Order("date DESC").
+				Limit(12).
+				Find(&trends).Error
 
 			if err != nil {
-				return fmt.Errorf("计算品牌总销售额失败: %v", err)
+				return fmt.Errorf("查询品牌月度趋势失败: %v", err)
+			}
+
+			// 计算最近12个月的总销售额
+			var totalRevenue float64
+			for _, trend := range trends {
+				if trend.Revenue != nil {
+					totalRevenue += *trend.Revenue
+				}
 			}
 
 			// 2. 更新商品数量
@@ -375,6 +431,7 @@ func (s *BtAggregateService) UpdateBrandMetrics(marketID int64) error {
 }
 
 // UpdateMarketMetrics 更新市场的聚合指标
+// 使用数据中最新的12个月，而不是从当前时间往前推12个月
 func (s *BtAggregateService) UpdateMarketMetrics(marketID int64) error {
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		// 获取市场
@@ -383,17 +440,23 @@ func (s *BtAggregateService) UpdateMarketMetrics(marketID int64) error {
 			return fmt.Errorf("查询市场失败: %v", err)
 		}
 
-		// 1. 更新总销售额（最近12个月）
-		var totalRevenue float64
-		twelveMonthsAgo := time.Now().AddDate(0, -12, 0)
-
-		err := tx.Model(&brandtrekin.BtMarketMonthlyTrend{}).
-			Select("COALESCE(SUM(revenue), 0)").
-			Where("market_id = ? AND date >= ?", marketID, twelveMonthsAgo).
-			Scan(&totalRevenue).Error
+		// 1. 获取市场的所有月度趋势数据（按日期倒序，取最近12个月）
+		var trends []brandtrekin.BtMarketMonthlyTrend
+		err := tx.Where("market_id = ?", marketID).
+			Order("date DESC").
+			Limit(12).
+			Find(&trends).Error
 
 		if err != nil {
-			return fmt.Errorf("计算市场总销售额失败: %v", err)
+			return fmt.Errorf("查询市场月度趋势失败: %v", err)
+		}
+
+		// 计算最近12个月的总销售额
+		var totalRevenue float64
+		for _, trend := range trends {
+			if trend.Revenue != nil {
+				totalRevenue += *trend.Revenue
+			}
 		}
 
 		// 2. 更新品牌数量
@@ -416,17 +479,10 @@ func (s *BtAggregateService) UpdateMarketMetrics(marketID int64) error {
 			return fmt.Errorf("计算商品数量失败: %v", err)
 		}
 
-		// 4. 获取最近月份的搜索量
+		// 4. 获取最新月份的搜索量（数据中的最新日期，而不是当前时间）
 		var searchVolume int64
-		err = tx.Model(&brandtrekin.BtMarketMonthlyTrend{}).
-			Select("COALESCE(search_volume, 0)").
-			Where("market_id = ?", marketID).
-			Order("date DESC").
-			Limit(1).
-			Scan(&searchVolume).Error
-
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("获取搜索量失败: %v", err)
+		if len(trends) > 0 && trends[0].SearchVolume != nil {
+			searchVolume = *trends[0].SearchVolume
 		}
 
 		// 5. 更新市场记录

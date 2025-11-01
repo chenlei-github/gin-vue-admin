@@ -179,7 +179,6 @@ func (api *BtImportApi) BatchImport(c *gin.Context) {
 	replaceMode := replaceModeStr == "true"
 
 	// 收集所有上传的文件
-	files := make(map[string]interface{})
 	fileKeys := []string{"brandSocial", "productUS", "gkw", "keywordHistory", "productSales"}
 
 	form, err := c.MultipartForm()
@@ -210,7 +209,7 @@ func (api *BtImportApi) BatchImport(c *gin.Context) {
 		global.GVA_LOG.Error("创建导入日志失败!", zap.Error(err))
 	}
 
-	// 执行批量导入
+	// 执行批量导入（使用优化后的方法）
 	err = btImportService.BatchImport(marketID, filesMap, replaceMode)
 	if err != nil {
 		global.GVA_LOG.Error("批量导入失败!", zap.Error(err))

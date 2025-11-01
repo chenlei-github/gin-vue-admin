@@ -60,7 +60,7 @@ func (api *BtDisplayApi) GetMarketDetail(c *gin.Context) {
 // @Param marketId path string true "市场ID (slug)"
 // @Param brandName path string true "品牌名称"
 // @Success 200 {object} response.Response{data=response.BrandDetail,msg=string} "获取成功"
-// @Router /api/markets/{marketId}/brands/{brandName} [get]
+// @Router /api/markets/brands/{marketId}/{brandName} [get]
 func (api *BtDisplayApi) GetBrandDetail(c *gin.Context) {
 	marketSlug := c.Param("marketId")
 	brandName := c.Param("brandName")

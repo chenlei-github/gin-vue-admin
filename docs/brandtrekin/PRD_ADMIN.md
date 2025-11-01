@@ -531,17 +531,24 @@ interface UploadComponent {
   fileName: "Brand-Social.xlsx",
   description: "包含品牌名称、独立站、YouTube、Instagram、Facebook、Reddit数据",
   acceptedTypes: [".xlsx"],
+  sheetStructure: {
+    totalSheets: 2,
+    dataSheet: "Report",        // 主数据sheet
+    skipSheets: ["Method"]       // 跳过方法说明sheet
+  },
+  headerRow: 1,                 // 表头在第1行
+  dataStartRow: 2,              // 数据从第2行开始
   expectedColumns: [
     "Brand",                    // 必填
     "Website",                  // 可选
-    "YouTube",                  // 可选
+    "YouTube URL",              // 可选（实际列名）
     "YouTube Subscribers",      // 可选
-    "Instagram",                // 可选
+    "Instagram URL",            // 可选（实际列名）
     "Instagram Followers",      // 可选
-    "Facebook",                 // 可选
-    "Facebook Followers",       // 可选
-    "Reddit",                   // 可选
-    "Reddit Posts"              // 可选
+    "Facebook URL",             // 可选（实际列名）
+    "Facebook Followers/Likes", // 可选（实际列名）
+    "Reddit URL/Search",        // 可选（实际列名）
+    "Reddit Mentions (approx)" // 可选（实际列名）
   ]
 }
 ```
@@ -554,10 +561,14 @@ interface UploadComponent {
   fileName: "GKW.csv",
   description: "包含Google关键词及月度搜索量历史数据",
   acceptedTypes: [".csv"],
+  headerRow: 0,                 // 表头在第1行（索引0）
+  dataStartRow: 1,              // 数据从第2行开始（索引1）
+  encoding: ["utf-8", "gbk", "gb2312", "latin-1"],  // 支持多种编码
   expectedColumns: [
     "Keyword",                  // 必填
-    "YYYY-MM",                  // 动态列（月份）
-    // ... 更多月份列
+    "Searches: Sep 2021",       // 动态列（时间序列格式：Searches: Mon YYYY）
+    "Searches: Oct 2021",       // ... 更多月份列
+    // 时间序列从 2021年9月 到 2025年8月
   ]
 }
 ```
@@ -570,11 +581,25 @@ interface UploadComponent {
   fileName: "KeywordHistory.xlsx",
   description: "包含Amazon关键词及月度搜索量历史数据",
   acceptedTypes: [".xlsx"],
+  sheetStructure: {
+    totalSheets: "multiple",     // 包含多个历史sheet（4-11个不等）
+    dataSheetPattern: "History-*", // 匹配所有以History-开头的sheet
+    skipSheets: ["Notes", "Notes (2)"]  // 跳过说明sheet
+  },
+  headerRow: 2,                 // 表头在第2行（第1行是标题行）
+  titleRow: 1,                  // 第1行是标题行，需要跳过
+  dataStartRow: 3,             // 数据从第3行开始
   expectedColumns: [
-    "Keyword",                  // 必填
-    "YYYY-MM",                  // 动态列（月份）
-    // ... 更多月份列
-  ]
+    "站点",                     // 必填（中文列名）
+    "月份",                     // 必填（中文列名）
+    "关键词",                   // 必填（中文列名）
+    "ABA排名",                  // 可选
+    "月搜索量",                 // 必填（中文列名）- 从此列提取搜索量
+    "搜索增长率",               // 可选
+    "月购买量",                 // 可选
+    // ... 更多列
+  ],
+  note: "每个History-开头的sheet代表一个关键词的历史数据，需要遍历所有历史sheet"
 }
 ```
 
@@ -586,15 +611,26 @@ interface UploadComponent {
   fileName: "Product-US.xlsx",
   description: "包含ASIN、标题、品牌、价格、评分、评论数、图片URL等",
   acceptedTypes: [".xlsx"],
+  sheetStructure: {
+    totalSheets: 2,
+    dataSheetPattern: "US-*",   // 主数据sheet名称包含US-和日期（如：US-CNCRouterMachine(114)）
+    skipSheets: ["Notes"]       // 跳过说明sheet
+  },
+  headerRow: 2,                 // 表头在第2行（第1行是标题行）
+  titleRow: 1,                  // 第1行是标题行，需要跳过
+  dataStartRow: 3,              // 数据从第3行开始
   expectedColumns: [
     "ASIN",                     // 必填
-    "Title",                    // 必填
-    "Brand",                    // 必填
-    "Price",                    // 可选
-    "Rating",                   // 可选
-    "Reviews",                  // 可选
-    "Image",                    // 可选
-    "Monthly Sales"             // 可选
+    "SKU",                      // 可选
+    "详细参数",                 // 可选（中文列名）
+    "品牌",                     // 必填（中文列名）
+    "品牌链接",                 // 可选（中文列名）
+    "商品标题",                 // 必填（中文列名）
+    "商品详情页链接",           // 可选（中文列名）
+    "商品主图",                 // 可选（中文列名）
+    "父ASIN",                   // 可选（中文列名）
+    "类目路径",                 // 可选（中文列名）
+    // ... 共64列
   ]
 }
 ```
@@ -607,11 +643,40 @@ interface UploadComponent {
   fileName: "product-US-sales.xlsx",
   description: "包含ASIN及每月销售额、销量数据",
   acceptedTypes: [".xlsx"],
-  expectedColumns: [
-    "ASIN",                     // 必填
-    "YYYY-MM",                  // 动态列（月份）
-    // ... 更多月份列
-  ]
+  sheetStructure: {
+    totalSheets: 3,
+    dataSheets: [
+      "产品历史月销量",          // 销量数据sheet
+      "产品历史月销售额"        // 销售额数据sheet
+    ],
+    skipSheets: ["Notes"]       // 跳过说明sheet
+  },
+  headerRow: 1,                 // 表头在第1行
+  dataStartRow: 2,              // 数据从第2行开始
+  expectedColumns: {
+    salesVolumeSheet: [         // 产品历史月销量sheet
+      "图片",                   // 可选
+      "ASIN",                   // 必填
+      "SKU",                    // 可选
+      "URL",                    // 可选
+      "所属类目",               // 可选（中文列名）
+      "商品标题",               // 可选（中文列名）
+      "2025-10",                // 动态列（月份格式：YYYY-MM）
+      "2025-09",                // ... 更多月份列
+      // 时间序列从 2023年8月 到 2025年10月
+    ],
+    salesRevenueSheet: [        // 产品历史月销售额sheet
+      "图片",
+      "ASIN",                   // 必填
+      "SKU",
+      "URL",
+      "所属类目",
+      "商品标题",
+      "2025-10($)",             // 动态列（月份格式：YYYY-MM($)）
+      "2025-09($)",             // ... 更多月份列
+    ]
+  },
+  note: "需要同时处理两个sheet，分别提取销量和销售额数据"
 }
 ```
 
@@ -687,13 +752,18 @@ import * as XLSX from 'xlsx';
 async function parseBrandSocial(file, marketId) {
   // 1. 读取Excel文件
   const workbook = XLSX.read(await file.arrayBuffer());
-  const sheetName = workbook.SheetNames[0];
+  
+  // 2. 识别Report sheet（跳过Method sheet）
+  const sheetName = workbook.SheetNames.find(name => name === "Report");
+  if (!sheetName) {
+    throw new Error("找不到Report sheet");
+  }
   const sheet = workbook.Sheets[sheetName];
   
-  // 2. 转换为JSON
+  // 3. 转换为JSON（表头在第1行，已正确）
   const data = XLSX.utils.sheet_to_json(sheet);
   
-  // 3. 校验必填列
+  // 4. 校验必填列
   if (data.length === 0) {
     throw new Error("文件为空");
   }
@@ -703,7 +773,7 @@ async function parseBrandSocial(file, marketId) {
     throw new Error("缺少必填列：Brand");
   }
   
-  // 4. 解析每一行
+  // 5. 解析每一行
   const brands = [];
   const errors = [];
   
@@ -722,21 +792,23 @@ async function parseBrandSocial(file, marketId) {
         brand_name: row.Brand.trim(),
         website: row.Website || null,
         
-        // YouTube数据
-        youtube_url: row.YouTube || null,
+        // YouTube数据（注意实际列名是 "YouTube URL"）
+        youtube_url: row['YouTube URL'] || row.YouTube || null,
         youtube_subscribers: parseInt(row['YouTube Subscribers']) || 0,
         
-        // Instagram数据
-        instagram_url: row.Instagram || null,
+        // Instagram数据（注意实际列名是 "Instagram URL"）
+        instagram_url: row['Instagram URL'] || row.Instagram || null,
         instagram_followers: parseInt(row['Instagram Followers']) || 0,
         
-        // Facebook数据
-        facebook_url: row.Facebook || null,
-        facebook_followers: parseInt(row['Facebook Followers']) || 0,
+        // Facebook数据（注意实际列名是 "Facebook URL"）
+        facebook_url: row['Facebook URL'] || row.Facebook || null,
+        facebook_followers: parseInt(row['Facebook Followers/Likes']) || 
+                           parseInt(row['Facebook Followers']) || 0,
         
-        // Reddit数据
-        reddit_url: row.Reddit || null,
-        reddit_posts: parseInt(row['Reddit Posts']) || 0
+        // Reddit数据（注意实际列名是 "Reddit URL/Search"）
+        reddit_url: row['Reddit URL/Search'] || row.Reddit || null,
+        reddit_posts: parseInt(row['Reddit Mentions (approx)']) || 
+                     parseInt(row['Reddit Posts']) || 0
       });
     } catch (error) {
       errors.push({
@@ -861,62 +933,132 @@ async function parseGKW(file, marketId) {
 #### 解析代码
 ```javascript
 async function parseKeywordHistory(file, marketId) {
-  // 与parseGKW类似，但source为'amazon'
+  // 1. 读取Excel文件
   const workbook = XLSX.read(await file.arrayBuffer());
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const data = XLSX.utils.sheet_to_json(sheet);
+  
+  // 2. 识别所有History-开头的sheet（排除Notes sheet）
+  const historySheets = workbook.SheetNames.filter(name => 
+    name.startsWith("History-") && !name.includes("Notes")
+  );
+  
+  if (historySheets.length === 0) {
+    throw new Error("找不到History sheet");
+  }
   
   const keywords = [];
   const errors = [];
   
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i];
-    const rowNumber = i + 2;
+  // 3. 遍历所有历史sheet
+  for (const sheetName of historySheets) {
+    const sheet = workbook.Sheets[sheetName];
     
-    if (!row.Keyword || row.Keyword.trim() === '') {
+    // 4. 跳过第1行标题行，从第2行开始读取（第2行是表头）
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    
+    if (rows.length < 2) {
+      continue; // 跳过空的sheet
+    }
+    
+    // 第2行是表头（索引1）
+    const header = rows[1];
+    const colMap = {};
+    header.forEach((col, idx) => {
+      if (col) colMap[col] = idx;
+    });
+    
+    // 校验必填列（中文列名）
+    if (!colMap['关键词'] || !colMap['月份'] || !colMap['月搜索量']) {
+      errors.push({
+        row: 0,
+        error: `Sheet ${sheetName} 缺少必填列（关键词、月份或月搜索量）`
+      });
       continue;
     }
     
-    const keyword = row.Keyword.trim();
-    const monthlyVolumes = [];
-    
-    for (const [key, value] of Object.entries(row)) {
-      if (key === 'Keyword') continue;
+    // 5. 从第3行开始解析数据（索引2）
+    for (let i = 2; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNumber = i + 1;
       
-      if (!/^\d{4}-\d{2}$/.test(key)) {
-        errors.push({
-          row: rowNumber,
-          error: `无效的日期格式：${key}`
-        });
+      if (!row || row.length === 0) {
         continue;
       }
       
-      const volume = parseInt(value);
-      if (!isNaN(volume) && volume > 0) {
-        monthlyVolumes.push({
-          date: `${key}-01`,
-          volume: volume
+      // 提取关键词（从sheet名称或数据行）
+      const keyword = sheetName.replace("History-", "").replace("-US", "").trim();
+      
+      // 提取月份和搜索量
+      const month = row[colMap['月份']];
+      const volume = row[colMap['月搜索量']];
+      
+      if (!month || !volume) {
+        continue;
+      }
+      
+      // 解析月份格式（可能是 "2025-09" 或其他格式）
+      let date;
+      if (typeof month === 'string' && /^\d{4}-\d{2}$/.test(month)) {
+        date = new Date(`${month}-01`);
+      } else if (month instanceof Date) {
+        date = month;
+      } else {
+        continue; // 跳过无效的日期格式
+      }
+      
+      const volumeNum = parseInt(volume);
+      if (isNaN(volumeNum) || volumeNum <= 0) {
+        continue;
+      }
+      
+      // 检查是否已存在该关键词的该月份数据
+      const existingIndex = keywords.findIndex(k => 
+        k.keyword === keyword && 
+        k.date.getTime() === date.getTime()
+      );
+      
+      if (existingIndex >= 0) {
+        // 更新现有记录（如果新数据更大）
+        if (volumeNum > keywords[existingIndex].volume) {
+          keywords[existingIndex].volume = volumeNum;
+        }
+      } else {
+        keywords.push({
+          market_id: marketId,
+          keyword: keyword,
+          source: 'amazon',
+          date: date,
+          volume: volumeNum
         });
       }
     }
-    
-    if (monthlyVolumes.length > 0) {
-      keywords.push({
-        market_id: marketId,
-        keyword: keyword,
-        source: 'amazon',  // 注意：这里是amazon
-        monthly_volumes: monthlyVolumes
-      });
-    }
   }
+  
+  // 6. 按关键词和日期分组，生成月度数据
+  const keywordMap = {};
+  keywords.forEach(k => {
+    const key = `${k.keyword}_${k.source}`;
+    if (!keywordMap[key]) {
+      keywordMap[key] = {
+        market_id: marketId,
+        keyword: k.keyword,
+        source: k.source,
+        monthly_volumes: []
+      };
+    }
+    keywordMap[key].monthly_volumes.push({
+      date: k.date,
+      volume: k.volume
+    });
+  });
+  
+  const keywordList = Object.values(keywordMap);
   
   return {
     success: true,
-    data: keywords,
-    total: keywords.length,
+    data: keywordList,
+    total: keywordList.length,
     errors: errors,
-    preview: keywords.slice(0, 5)
+    preview: keywordList.slice(0, 5)
   };
 }
 ```
@@ -936,52 +1078,101 @@ async function parseKeywordHistory(file, marketId) {
 #### 解析代码
 ```javascript
 async function parseProductUS(file, marketId) {
+  // 1. 读取Excel文件
   const workbook = XLSX.read(await file.arrayBuffer());
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const data = XLSX.utils.sheet_to_json(sheet);
   
-  // 校验必填列
-  if (data.length === 0) {
-    throw new Error("文件为空");
+  // 2. 识别主数据sheet（排除Notes sheet）
+  const sheetName = workbook.SheetNames.find(name => 
+    name.startsWith("US-") && !name.includes("Notes")
+  );
+  if (!sheetName) {
+    throw new Error("找不到主数据sheet");
+  }
+  const sheet = workbook.Sheets[sheetName];
+  
+  // 3. 读取原始行数据
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+  
+  if (rows.length < 3) {
+    throw new Error("文件为空或缺少数据行");
   }
   
-  const firstRow = data[0];
-  const requiredColumns = ['ASIN', 'Title', 'Brand'];
-  for (const col of requiredColumns) {
-    if (!firstRow.hasOwnProperty(col)) {
-      throw new Error(`缺少必填列：${col}`);
-    }
+  // 4. 跳过第1行标题行，第2行是表头（索引1）
+  const header = rows[1];
+  const colMap = {};
+  header.forEach((col, idx) => {
+    if (col) colMap[col] = idx;
+  });
+  
+  // 5. 校验必填列（支持中英文列名）
+  const asinCol = colMap['ASIN'] !== undefined ? 'ASIN' : 
+                  Object.keys(colMap).find(k => k.includes('ASIN'));
+  const brandCol = colMap['品牌'] !== undefined ? '品牌' :
+                   colMap['Brand'] !== undefined ? 'Brand' :
+                   Object.keys(colMap).find(k => k.includes('品牌') || k.includes('Brand'));
+  const titleCol = colMap['商品标题'] !== undefined ? '商品标题' :
+                   colMap['Title'] !== undefined ? 'Title' :
+                   Object.keys(colMap).find(k => k.includes('标题') || k.includes('Title'));
+  
+  if (!asinCol || !brandCol || !titleCol) {
+    throw new Error("缺少必填列：ASIN、品牌/Brand或商品标题/Title");
   }
   
   const products = [];
   const errors = [];
   
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i];
-    const rowNumber = i + 2;
+  // 6. 从第3行开始解析数据（索引2）
+  for (let i = 2; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 1;
+    
+    if (!row || row.length === 0) {
+      continue;
+    }
+    
+    const asin = row[colMap[asinCol]];
+    const brand = row[colMap[brandCol]];
+    const title = row[colMap[titleCol]];
     
     // 校验必填字段
-    if (!row.ASIN || !row.Title || !row.Brand) {
+    if (!asin || !brand || !title) {
       errors.push({
         row: rowNumber,
-        error: "缺少必填字段（ASIN、Title或Brand）"
+        error: "缺少必填字段（ASIN、品牌或商品标题）"
       });
       continue;
     }
     
     try {
-      products.push({
+      const product = {
         market_id: marketId,
-        asin: row.ASIN.trim(),
-        title: row.Title.trim(),
-        brand: row.Brand.trim(),
-        price: parseFloat(row.Price) || 0,
-        rating: parseFloat(row.Rating) || 0,
-        reviews: parseInt(row.Reviews) || 0,
-        image_url: row.Image || null,
-        monthly_sales: parseInt(row['Monthly Sales']) || 0
-      });
+        asin: String(asin).trim(),
+        brand: String(brand).trim(),
+        title: String(title).trim()
+      };
+      
+      // 提取可选字段
+      const priceCol = colMap['价格'] || colMap['Price'];
+      if (priceCol !== undefined && row[priceCol]) {
+        product.price = parseFloat(row[priceCol]) || 0;
+      }
+      
+      const ratingCol = colMap['评分'] || colMap['Rating'];
+      if (ratingCol !== undefined && row[ratingCol]) {
+        product.rating = parseFloat(row[ratingCol]) || 0;
+      }
+      
+      const reviewsCol = colMap['评论数'] || colMap['Reviews'];
+      if (reviewsCol !== undefined && row[reviewsCol]) {
+        product.reviews = parseInt(row[reviewsCol]) || 0;
+      }
+      
+      const imageCol = colMap['商品主图'] || colMap['Image'];
+      if (imageCol !== undefined && row[imageCol]) {
+        product.image_url = String(row[imageCol]).trim();
+      }
+      
+      products.push(product);
     } catch (error) {
       errors.push({
         row: rowNumber,

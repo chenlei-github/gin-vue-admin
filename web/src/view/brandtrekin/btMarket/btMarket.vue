@@ -73,17 +73,24 @@
         >
         <el-table-column type="selection" width="55" />
         
-        <el-table-column sortable align="left" label="日期" prop="CreatedAt" width="180">
+        <el-table-column sortable align="left" label="ID" prop="ID" width="80" />
+        
+        <el-table-column sortable align="left" label="创建时间" prop="CreatedAt" width="180">
             <template #default="scope">{{ formatDate(scope.row.CreatedAt) }}</template>
         </el-table-column>
         
             <el-table-column align="left" label="市场名称" prop="marketName" width="120" />
 
-            <el-table-column align="left" label="市场标识符(用于URL)" prop="marketSlug" width="120" />
+            <el-table-column align="left" label="市场标识符(用于URL)" prop="marketSlug" width="150" />
 
-            <el-table-column align="left" label="状态" prop="status" width="120">
+            <el-table-column align="left" label="状态" prop="status" width="100">
     <template #default="scope">
-    {{ filterDict(scope.row.status,market_statusOptions) }}
+      <el-switch
+        v-model="scope.row.status"
+        :active-value="'active'"
+        :inactive-value="'inactive'"
+        @change="handleStatusChange(scope.row)"
+      />
     </template>
 </el-table-column>
             <el-table-column sortable align="left" label="总销售额(最近12个月)" prop="totalRevenue" width="120" />
@@ -100,6 +107,7 @@
             <template #default="scope">
             <el-button  type="primary" link class="table-button" @click="getDetails(scope.row)"><el-icon style="margin-right: 5px"><InfoFilled /></el-icon>查看</el-button>
             <el-button  type="primary" link icon="edit" class="table-button" @click="updateBtMarketFunc(scope.row)">编辑</el-button>
+            <el-button  type="primary" link icon="Upload" class="table-button" @click="goToImport(scope.row)">导入数据</el-button>
             <el-button   type="primary" link icon="delete" @click="deleteRow(scope.row)">删除</el-button>
             </template>
         </el-table-column>
@@ -121,18 +129,34 @@
               <div class="flex justify-between items-center">
                 <span class="text-lg">{{type==='create'?'新增':'编辑'}}</span>
                 <div>
-                  <el-button :loading="btnLoading" type="primary" @click="enterDialog">确 定</el-button>
                   <el-button @click="closeDialog">取 消</el-button>
+                  <el-button v-if="type==='create'" :loading="btnLoading" type="primary" @click="enterDialogAndImport">保存并导入数据</el-button>
+                  <el-button :loading="btnLoading" type="primary" @click="enterDialog">确 定</el-button>
                 </div>
               </div>
             </template>
 
           <el-form :model="formData" label-position="top" ref="elFormRef" :rules="rule" label-width="80px">
             <el-form-item label="市场名称:" prop="marketName">
-    <el-input v-model="formData.marketName" :clearable="true" placeholder="请输入市场名称" />
+    <el-input v-model="formData.marketName" :clearable="true" placeholder="请输入市场名称" @blur="autoGenerateSlug" />
 </el-form-item>
             <el-form-item label="市场标识符(用于URL):" prop="marketSlug">
-    <el-input v-model="formData.marketSlug" :clearable="true" placeholder="请输入市场标识符(用于URL)" />
+              <div style="display: flex; gap: 8px;">
+                <el-input 
+                  v-model="formData.marketSlug" 
+                  :clearable="true" 
+                  :disabled="type==='update'"
+                  placeholder="请输入市场标识符(用于URL)" 
+                  @blur="validateSlug"
+                />
+                <el-button v-if="type==='create'" @click="manualGenerateSlug">自动生成</el-button>
+              </div>
+              <div v-if="type==='update'" style="color: #909399; font-size: 12px; margin-top: 4px;">
+                市场ID创建后不可修改，以保持URL稳定性
+              </div>
+              <div v-else style="color: #909399; font-size: 12px; margin-top: 4px;">
+                用于URL，只能包含小写字母、数字和连字符
+              </div>
 </el-form-item>
             <el-form-item label="市场描述:" prop="description">
     <RichEdit v-model="formData.description"/>
@@ -141,6 +165,31 @@
     <el-tree-select v-model="formData.status" placeholder="请选择状态" :data="market_statusOptions" style="width:100%" filterable :clearable="false" check-strictly></el-tree-select>
 </el-form-item>
           </el-form>
+    </el-drawer>
+
+    <!-- 数据导入弹框 -->
+    <el-drawer 
+      destroy-on-close 
+      :size="appStore.drawerSize" 
+      v-model="importDrawerVisible" 
+      :show-close="false" 
+      :before-close="closeImportDrawer"
+      direction="rtl"
+    >
+      <template #header>
+        <div class="flex justify-between items-center">
+          <span class="text-lg">导入市场数据 - {{ currentMarket?.marketName || '' }}</span>
+          <div>
+            <el-button @click="closeImportDrawer">关闭</el-button>
+          </div>
+        </div>
+      </template>
+      <MarketImportComponent 
+        v-if="currentMarket"
+        :market-id="currentMarket.ID" 
+        @close="closeImportDrawer"
+        @success="handleImportSuccess"
+      />
     </el-drawer>
 
     <el-drawer destroy-on-close :size="appStore.drawerSize" v-model="detailShow" :show-close="true" :before-close="closeDetailShow" title="查看">
@@ -185,8 +234,13 @@ import {
   deleteBtMarketByIds,
   updateBtMarket,
   findBtMarket,
-  getBtMarketList
+  getBtMarketList,
+  toggleMarketStatus,
+  validateDeleteMarket,
+  generateSlugFromName,
+  validateSlugUnique
 } from '@/api/brandtrekin/btMarket'
+import MarketImportComponent from './btMarketImport.vue'
 // 富文本组件
 import RichEdit from '@/components/richtext/rich-edit.vue'
 import RichView from '@/components/richtext/rich-view.vue'
@@ -196,6 +250,7 @@ import { getDictFunc, formatDate, formatBoolean, filterDict ,filterDataSource, r
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, reactive } from 'vue'
 import { useAppStore } from "@/pinia"
+import { useRouter } from 'vue-router'
 
 // 导出组件
 import ExportExcel from '@/components/exportExcel/exportExcel.vue'
@@ -212,6 +267,7 @@ defineOptions({
 // 提交按钮loading
 const btnLoading = ref(false)
 const appStore = useAppStore()
+const router = useRouter()
 
 // 控制更多查询条件显示/隐藏状态
 const showAllQuery = ref(false)
@@ -249,7 +305,12 @@ const rule = reactive({
                    whitespace: true,
                    message: '不能只输入空格',
                    trigger: ['input', 'blur'],
-              }
+               },
+               {
+                   pattern: /^[a-z0-9-]+$/,
+                   message: '只能包含小写字母、数字和连字符',
+                   trigger: ['input', 'blur'],
+               }
               ],
                status : [{
                    required: true,
@@ -353,15 +414,97 @@ const handleSelectionChange = (val) => {
 }
 
 // 删除行
-const deleteRow = (row) => {
-    ElMessageBox.confirm('确定要删除吗?', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-    }).then(() => {
-            deleteBtMarketFunc(row)
-        })
+const deleteRow = async (row) => {
+  // 获取市场信息用于确认
+  const res = await validateDeleteMarket({ ID: row.ID })
+  if (res.code !== 0) {
+    ElMessage.error('获取市场信息失败')
+    return
+  }
+
+  const marketInfo = res.data
+  
+  // 显示自定义删除确认弹窗
+  ElMessageBox.prompt(
+    `删除市场将同时删除该市场下的所有数据，包括：
+• 所有品牌信息
+• 所有商品信息
+• 所有关键词数据
+• 所有销售数据
+• 所有趋势数据
+
+⚠️ 此操作不可恢复！
+
+请输入市场名称以确认删除：`,
+    '确认删除',
+    {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      inputPlaceholder: `请输入：${marketInfo.marketName || ''}`,
+      inputValidator: (value) => {
+        if (!value || value.trim() === '') {
+          return '请输入市场名称'
+        }
+        if (value.trim() !== marketInfo.marketName) {
+          return '市场名称不匹配，请重新输入'
+        }
+        return true
+      },
+      type: 'warning',
+      dangerouslyUseHTMLString: false
     }
+  ).then(() => {
+    deleteBtMarketFunc(row)
+  }).catch(() => {
+    // 取消删除
+  })
+}
+
+// 状态切换
+const handleStatusChange = async (row) => {
+  try {
+    const res = await toggleMarketStatus({ ID: row.ID }, { status: row.status })
+    if (res.code === 0) {
+      ElMessage.success('状态更新成功')
+    } else {
+      // 恢复原状态
+      row.status = row.status === 'active' ? 'inactive' : 'active'
+      ElMessage.error(res.msg || '状态更新失败')
+    }
+  } catch (error) {
+    // 恢复原状态
+    row.status = row.status === 'active' ? 'inactive' : 'active'
+    ElMessage.error('状态更新失败')
+  }
+}
+
+// 打开导入数据弹框
+const goToImport = async (row) => {
+  // 获取完整的市场信息
+  try {
+    const res = await findBtMarket({ ID: row.ID })
+    if (res.code === 0) {
+      currentMarket.value = res.data
+      importDrawerVisible.value = true
+    } else {
+      ElMessage.error('获取市场信息失败')
+    }
+  } catch (error) {
+    ElMessage.error('获取市场信息失败')
+  }
+}
+
+// 关闭导入弹框
+const closeImportDrawer = () => {
+  importDrawerVisible.value = false
+  currentMarket.value = null
+}
+
+// 导入成功回调
+const handleImportSuccess = () => {
+  // 刷新列表
+  getTableData()
+}
 
 // 多选删除
 const onDelete = async() => {
@@ -428,6 +571,10 @@ const deleteBtMarketFunc = async (row) => {
 // 弹窗控制标记
 const dialogFormVisible = ref(false)
 
+// 导入弹框控制
+const importDrawerVisible = ref(false)
+const currentMarket = ref(null)
+
 // 打开弹窗
 const openDialog = () => {
     type.value = 'create'
@@ -444,6 +591,64 @@ const closeDialog = () => {
         status: '',
         }
 }
+
+// 自动生成slug（从市场名称）
+const autoGenerateSlug = async () => {
+  if (type.value === 'create' && formData.value.marketName && !formData.value.marketSlug) {
+    try {
+      const res = await generateSlugFromName({ name: formData.value.marketName })
+      if (res.code === 0 && res.data.slug) {
+        formData.value.marketSlug = res.data.slug
+      }
+    } catch (error) {
+      // 生成失败时不处理
+    }
+  }
+}
+
+// 手动生成slug
+const manualGenerateSlug = async () => {
+  if (!formData.value.marketName) {
+    ElMessage.warning('请先输入市场名称')
+    return
+  }
+  try {
+    const res = await generateSlugFromName({ name: formData.value.marketName })
+    if (res.code === 0 && res.data.slug) {
+      formData.value.marketSlug = res.data.slug
+      ElMessage.success('已自动生成市场ID')
+      // 立即校验唯一性
+      await validateSlug()
+    } else {
+      ElMessage.error('生成失败')
+    }
+  } catch (error) {
+    ElMessage.error('生成失败')
+  }
+}
+
+// 校验slug唯一性
+const validateSlug = async () => {
+  if (!formData.value.marketSlug || type.value === 'update') {
+    return
+  }
+  try {
+    const excludeID = type.value === 'update' ? formData.value.ID : undefined
+    const params = { slug: formData.value.marketSlug }
+    if (excludeID) {
+      params.excludeID = excludeID
+    }
+    const res = await validateSlugUnique(params)
+    if (res.code === 0) {
+      if (!res.data.isUnique) {
+        ElMessage.warning('该市场ID已存在，请修改')
+      }
+    }
+  } catch (error) {
+    // 校验失败时不处理
+  }
+}
+
 // 弹窗确定
 const enterDialog = async () => {
      btnLoading.value = true
@@ -471,6 +676,39 @@ const enterDialog = async () => {
                 getTableData()
               }
       })
+}
+
+// 保存并导入数据
+const enterDialogAndImport = async () => {
+  btnLoading.value = true
+  elFormRef.value?.validate(async (valid) => {
+    if (!valid) return btnLoading.value = false
+    if (type.value !== 'create') {
+      btnLoading.value = false
+      return
+    }
+    const res = await createBtMarket(formData.value)
+    btnLoading.value = false
+    if (res.code === 0) {
+      ElMessage({
+        type: 'success',
+        message: '市场创建成功，即将打开导入页面'
+      })
+      // 通过slug查询新创建的市场信息
+      const listRes = await getBtMarketList({ page: 1, pageSize: 10, marketSlug: formData.value.marketSlug })
+      if (listRes.code === 0 && listRes.data.list && listRes.data.list.length > 0) {
+        currentMarket.value = listRes.data.list[0]
+        closeDialog()
+        getTableData()
+        // 打开导入弹框
+        importDrawerVisible.value = true
+      } else {
+        ElMessage.error('无法获取新创建的市场信息')
+        closeDialog()
+        getTableData()
+      }
+    }
+  })
 }
 
 const detailForm = ref({})

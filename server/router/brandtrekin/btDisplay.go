@@ -12,8 +12,8 @@ func (s *BtDisplayRouter) InitBtDisplayRouter(Router *gin.RouterGroup, PublicRou
 	btDisplayRouter := PublicRouter.Group("api")
 
 	{
-		btDisplayRouter.GET("markets", btDisplayApi.GetMarketList)                            // 获取市场列表
-		btDisplayRouter.GET("markets/:id", btDisplayApi.GetMarketDetail)                      // 获取市场详情
-		btDisplayRouter.GET("markets/:marketId/brands/:brandName", btDisplayApi.GetBrandDetail) // 获取品牌详情
+		btDisplayRouter.GET("markets", btDisplayApi.GetMarketList)                              // 获取市场列表
+		btDisplayRouter.GET("markets/brands/:marketId/:brandName", btDisplayApi.GetBrandDetail) // 获取品牌详情（需要先于:id注册）
+		btDisplayRouter.GET("markets/:id", btDisplayApi.GetMarketDetail)                        // 获取市场详情
 	}
 }

@@ -37,10 +37,15 @@ func (s *BtDisplayService) GetMarketList() ([]response.MarketListItem, error) {
 		monthlyTrends := make([]response.MonthlyTrend, len(trends))
 		for i, trend := range trends {
 			idx := len(trends) - 1 - i
+			var searchVolume *int
+			if trend.SearchVolume != nil {
+				sv := int(*trend.SearchVolume)
+				searchVolume = &sv
+			}
 			monthlyTrends[idx] = response.MonthlyTrend{
-				Date:    trend.Date.Format("2006-01"),
-				Revenue: getFloat64(trend.Revenue),
-				SearchVolume: trend.SearchVolume,
+				Date:         trend.Date.Format("2006-01"),
+				Revenue:      getFloat64(trend.Revenue),
+				SearchVolume: searchVolume,
 			}
 		}
 
@@ -90,10 +95,15 @@ func (s *BtDisplayService) GetMarketDetail(marketSlug string) (*response.MarketD
 	monthlyTrends := make([]response.MonthlyTrend, 0, len(trends))
 	for i := len(trends) - 1; i >= 0; i-- {
 		trend := trends[i]
+		var searchVolume *int
+		if trend.SearchVolume != nil {
+			sv := int(*trend.SearchVolume)
+			searchVolume = &sv
+		}
 		monthlyTrends = append(monthlyTrends, response.MonthlyTrend{
 			Date:         trend.Date.Format("2006-01"),
 			Revenue:      getFloat64(trend.Revenue),
-			SearchVolume: trend.SearchVolume,
+			SearchVolume: searchVolume,
 		})
 	}
 
@@ -273,24 +283,44 @@ func (s *BtDisplayService) getBrandSocialMedia(brandID int64) (*response.SocialM
 
 		switch platform {
 		case "youtube":
+			var subscribers *int
+			if s.Subscribers != nil {
+				subs := int(*s.Subscribers)
+				subscribers = &subs
+			}
 			social.Youtube = &response.SocialPlatform{
 				URL:         url,
-				Subscribers: s.Subscribers,
+				Subscribers: subscribers,
 			}
 		case "instagram":
+			var followers *int
+			if s.Followers != nil {
+				fol := int(*s.Followers)
+				followers = &fol
+			}
 			social.Instagram = &response.SocialPlatform{
 				URL:       url,
-				Followers: s.Followers,
+				Followers: followers,
 			}
 		case "facebook":
+			var followers *int
+			if s.Followers != nil {
+				fol := int(*s.Followers)
+				followers = &fol
+			}
 			social.Facebook = &response.SocialPlatform{
 				URL:       url,
-				Followers: s.Followers,
+				Followers: followers,
 			}
 		case "reddit":
+			var posts *int
+			if s.Posts != nil {
+				p := int(*s.Posts)
+				posts = &p
+			}
 			social.Reddit = &response.SocialPlatform{
 				URL:   url,
-				Posts: s.Posts,
+				Posts: posts,
 			}
 		}
 	}

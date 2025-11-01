@@ -10,7 +10,6 @@ type BtImportRouter struct{}
 // InitBtImportRouter 初始化 数据导入 路由信息
 func (s *BtImportRouter) InitBtImportRouter(Router *gin.RouterGroup, PublicRouter *gin.RouterGroup) {
 	btImportRouter := Router.Group("btImport").Use(middleware.OperationRecord())
-	btImportRouterWithoutRecord := Router.Group("btImport")
 
 	{
 		// 文件预览接口（用于上传前预览文件内容）

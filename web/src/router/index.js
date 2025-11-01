@@ -52,6 +52,15 @@ const routes = [
     component: () => import('@/view/brandtrekin/display/brand-detail.vue')
   },
   {
+    path: '/admin/markets/:id/import',
+    name: 'BtMarketImport',
+    meta: {
+      title: '数据导入',
+      keepAlive: false
+    },
+    component: () => import('@/view/brandtrekin/btMarket/btMarketImport.vue')
+  },
+  {
     path: '/:catchAll(.*)',
     meta: {
       closeTab: true

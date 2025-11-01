@@ -108,3 +108,70 @@ export const getBtMarketPublic = () => {
     method: 'get',
   })
 }
+
+// @Tags BtMarket
+// @Summary 切换市场状态
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query uint true "市场ID"
+// @Param status body object{status=string} true "状态 (active/inactive)"
+// @Success 200 {object} response.Response{msg=string} "更新成功"
+// @Router /btMarket/toggleMarketStatus [put]
+export const toggleMarketStatus = (params, data) => {
+  return service({
+    url: '/btMarket/toggleMarketStatus',
+    method: 'put',
+    params,
+    data
+  })
+}
+
+// @Tags BtMarket
+// @Summary 根据市场名称自动生成slug
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param name query string true "市场名称"
+// @Success 200 {object} response.Response{data=object{slug=string},msg=string} "生成成功"
+// @Router /btMarket/generateSlugFromName [get]
+export const generateSlugFromName = (params) => {
+  return service({
+    url: '/btMarket/generateSlugFromName',
+    method: 'get',
+    params
+  })
+}
+
+// @Tags BtMarket
+// @Summary 校验slug唯一性
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param slug query string true "市场slug"
+// @Param excludeID query uint false "排除的市场ID（用于编辑时检查）"
+// @Success 200 {object} response.Response{data=object{isUnique=bool},msg=string} "校验成功"
+// @Router /btMarket/validateSlugUnique [get]
+export const validateSlugUnique = (params) => {
+  return service({
+    url: '/btMarket/validateSlugUnique',
+    method: 'get',
+    params
+  })
+}
+
+// @Tags BtMarket
+// @Summary 删除前市场名称校验
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query uint true "市场ID"
+// @Success 200 {object} response.Response{data=brandtrekin.BtMarket,msg=string} "查询成功"
+// @Router /btMarket/validateDeleteMarket [get]
+export const validateDeleteMarket = (params) => {
+  return service({
+    url: '/btMarket/validateDeleteMarket',
+    method: 'get',
+    params
+  })
+}
