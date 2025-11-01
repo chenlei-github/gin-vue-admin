@@ -126,13 +126,34 @@ func (s *BtDisplayService) GetMarketDetail(marketSlug string) (*response.MarketD
 			global.GVA_LOG.Warn(fmt.Sprintf("获取品牌社交媒体失败: %v", err))
 		}
 
+		// 获取品牌月度趋势
+		var brandTrends []brandtrekin.BtBrandMonthlyTrend
+		err = global.GVA_DB.Where("brand_id = ?", brandID).
+			Order("date DESC").
+			Limit(12).
+			Find(&brandTrends).Error
+
+		brandMonthlyTrends := make([]response.MonthlyTrend, 0, len(brandTrends))
+		if err == nil {
+			for i := len(brandTrends) - 1; i >= 0; i-- {
+				trend := brandTrends[i]
+				brandMonthlyTrends = append(brandMonthlyTrends, response.MonthlyTrend{
+					Date:    trend.Date.Format("2006-01"),
+					Revenue: getFloat64(trend.Revenue),
+				})
+			}
+		} else {
+			global.GVA_LOG.Warn(fmt.Sprintf("获取品牌月度趋势失败: %v", err))
+		}
+
 		summary := response.BrandSummary{
-			Brand:        getString(brand.BrandName),
-			TotalRevenue: getFloat64(brand.TotalRevenue),
-			ProductCount: int(getInt64(brand.ProductCount)),
-			CAGR:         brand.Cagr,
-			Website:      brand.Website,
-			Social:       social,
+			Brand:         getString(brand.BrandName),
+			TotalRevenue:  getFloat64(brand.TotalRevenue),
+			ProductCount:  int(getInt64(brand.ProductCount)),
+			CAGR:          brand.Cagr,
+			Website:       brand.Website,
+			Social:        social,
+			MonthlyTrends: brandMonthlyTrends,
 		}
 
 		brandSummaries = append(brandSummaries, summary)

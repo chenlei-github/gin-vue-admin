@@ -37,7 +37,7 @@ export const getMarketDetail = (id) => {
 // @Router /api/markets/:marketId/brands/:brandName [get]
 export const getBrandDetail = (marketId, brandName) => {
   return service({
-    url: `/api/markets/${marketId}/brands/${encodeURIComponent(brandName)}`,
+    url: `/api/markets/brands/${marketId}/${encodeURIComponent(brandName)}`,
     method: 'get'
   })
 }

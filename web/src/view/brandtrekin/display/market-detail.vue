@@ -47,7 +47,7 @@
               <el-icon :size="40"><Search /></el-icon>
             </div>
             <div class="metric-content">
-              <div class="metric-label">搜索量</div>
+              <div class="metric-label">月度搜索量总和</div>
               <div class="metric-value">{{ formatNumber(marketDetail?.metrics?.searchVolume) }}</div>
             </div>
           </div>
@@ -66,14 +66,14 @@
         </el-card>
       </div>
 
-      <!-- 图表区域 -->
+      <!-- 图表区域 - 柱状图和饼图并排 -->
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
-        <!-- 营收和搜索量趋势图 (双Y轴) -->
+        <!-- 品牌排名柱状图 -->
         <el-card>
           <template #header>
-            <span class="font-bold">营收与搜索量趋势</span>
+            <span class="font-bold">品牌营收排名 (Top 8)</span>
           </template>
-          <div ref="trendChartRef" class="chart-container"></div>
+          <div ref="barChartRef" class="chart-container"></div>
         </el-card>
 
         <!-- 品牌营收占比饼图 -->
@@ -85,35 +85,59 @@
         </el-card>
       </div>
 
-      <!-- 品牌排名柱状图 -->
+      <!-- 营收和搜索量趋势图 (双Y轴) - 单独一行 -->
       <el-card class="mb-6">
         <template #header>
-          <span class="font-bold">品牌营收排名 (Top 8)</span>
+          <div class="flex items-center justify-between">
+            <span class="font-bold">营收与搜索量趋势</span>
+            <el-select 
+              v-model="selectedBrands" 
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="选择品牌对比" 
+              style="width: 300px"
+              @change="handleBrandChange"
+            >
+              <el-option label="全部品牌" value="all" />
+              <el-option 
+                v-for="brand in marketDetail?.brands || []" 
+                :key="brand.brand" 
+                :label="brand.brand" 
+                :value="brand.brand" 
+              />
+            </el-select>
+          </div>
         </template>
-        <div ref="barChartRef" class="chart-container-large"></div>
+        <div ref="trendChartRef" class="chart-container-large"></div>
       </el-card>
 
-      <!-- 品牌列表表格 -->
-      <el-card>
+      <!-- 品牌列表表格 - 最下方 -->
+      <el-card class="mb-6">
         <template #header>
           <span class="font-bold">品牌列表</span>
         </template>
-        <el-table :data="marketDetail?.brands || []" style="width: 100%">
-          <el-table-column prop="brandName" label="品牌名称" min-width="150">
+        <el-table 
+          :data="marketDetail?.brands || []" 
+          style="width: 100%"
+          :max-height="400"
+          stripe
+        >
+          <el-table-column prop="brand" label="品牌名称" min-width="150"  align="center" fixed>
             <template #default="{ row }">
-              <el-button type="primary" link @click="viewBrandDetail(row.brandName)">
-                {{ row.brandName }}
+              <el-button type="primary" link @click="viewBrandDetail(row.brand)">
+                {{ row.brand }}
               </el-button>
             </template>
           </el-table-column>
 
-          <el-table-column prop="revenue" label="营收" min-width="130" sortable>
+          <el-table-column prop="totalRevenue" label="营收"  sortable>
             <template #default="{ row }">
-              <span class="font-medium">{{ formatCurrency(row.revenue) }}</span>
+              <span class="font-medium">{{ formatCurrency(row.totalRevenue) }}</span>
             </template>
           </el-table-column>
 
-          <el-table-column prop="cagr" label="CAGR" width="100" sortable>
+          <el-table-column prop="cagr" label="品牌增速CAGR" sortable>
             <template #default="{ row }">
               <el-tag v-if="row.cagr !== null" :type="getCAGRType(row.cagr)">
                 {{ formatPercent(row.cagr) }}
@@ -122,36 +146,63 @@
             </template>
           </el-table-column>
 
-          <el-table-column prop="productCount" label="产品数" width="100" sortable>
+          <el-table-column prop="productCount" label="产品数" sortable>
             <template #default="{ row }">
               <el-tag type="warning">{{ row.productCount }}</el-tag>
             </template>
           </el-table-column>
 
-          <el-table-column label="社交媒体" min-width="200">
+          <el-table-column label="独立站">
             <template #default="{ row }">
-              <div class="flex gap-2">
-                <el-tooltip v-if="row.socialMedia?.youtubeChannel" content="YouTube" placement="top">
-                  <a :href="row.socialMedia.youtubeChannel" target="_blank" class="social-icon youtube">
-                    <el-icon :size="20"><VideoPlay /></el-icon>
+              <el-tooltip v-if="row.website" placement="top" content="访问品牌官网">
+                <a :href="row.website" target="_blank" class="website-link">
+                  <el-icon :size="20" color="#409eff"><Link /></el-icon>
+                </a>
+              </el-tooltip>
+              <span v-else class="text-gray-400">-</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="社交媒体" min-width="250">
+            <template #default="{ row }">
+              <div class="flex gap-2 items-center">
+                <el-tooltip v-if="row.social?.youtube?.url" placement="top">
+                  <template #content>
+                    YouTube<br/>
+                    订阅者: {{ formatNumber(row.social.youtube.subscribers) }}
+                  </template>
+                  <a :href="row.social.youtube.url" target="_blank" class="social-icon youtube">
+                    <el-icon :size="16"><VideoPlay /></el-icon>
                   </a>
                 </el-tooltip>
-                <el-tooltip v-if="row.socialMedia?.instagram" content="Instagram" placement="top">
-                  <a :href="row.socialMedia.instagram" target="_blank" class="social-icon instagram">
-                    <el-icon :size="20"><PictureFilled /></el-icon>
+                <el-tooltip v-if="row.social?.instagram?.url" placement="top">
+                  <template #content>
+                    Instagram<br/>
+                    粉丝: {{ formatNumber(row.social.instagram.followers) }}
+                  </template>
+                  <a :href="row.social.instagram.url" target="_blank" class="social-icon instagram">
+                    <el-icon :size="16"><PictureFilled /></el-icon>
                   </a>
                 </el-tooltip>
-                <el-tooltip v-if="row.socialMedia?.facebook" content="Facebook" placement="top">
-                  <a :href="row.socialMedia.facebook" target="_blank" class="social-icon facebook">
-                    <el-icon :size="20"><User /></el-icon>
+                <el-tooltip v-if="row.social?.facebook?.url" placement="top">
+                  <template #content>
+                    Facebook<br/>
+                    粉丝: {{ formatNumber(row.social.facebook.followers) }}
+                  </template>
+                  <a :href="row.social.facebook.url" target="_blank" class="social-icon facebook">
+                    <el-icon :size="16"><User /></el-icon>
                   </a>
                 </el-tooltip>
-                <el-tooltip v-if="row.socialMedia?.reddit" content="Reddit" placement="top">
-                  <a :href="row.socialMedia.reddit" target="_blank" class="social-icon reddit">
-                    <el-icon :size="20"><ChatDotRound /></el-icon>
+                <el-tooltip v-if="row.social?.reddit?.url" placement="top">
+                  <template #content>
+                    Reddit<br/>
+                    帖子数: {{ formatNumber(row.social.reddit.posts) }}
+                  </template>
+                  <a :href="row.social.reddit.url" target="_blank" class="social-icon reddit">
+                    <el-icon :size="16"><ChatDotRound /></el-icon>
                   </a>
                 </el-tooltip>
-                <span v-if="!hasSocialMedia(row.socialMedia)" class="text-gray-400">-</span>
+                <span v-if="!hasSocialMedia(row.social)" class="text-gray-400">-</span>
               </div>
             </template>
           </el-table-column>
@@ -168,7 +219,7 @@ import { getMarketDetail } from '@/api/brandtrekin/btDisplay'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft, Money, TrendCharts, Search, ShoppingBag,
-  VideoPlay, PictureFilled, User, ChatDotRound
+  VideoPlay, PictureFilled, User, ChatDotRound, Link
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
@@ -180,6 +231,7 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const marketDetail = ref(null)
+const selectedBrands = ref(['all'])
 
 // 图表引用
 const trendChartRef = ref(null)
@@ -215,32 +267,136 @@ const loadMarketDetail = async () => {
   }
 }
 
-// 渲染趋势图 (双Y轴)
+// 品牌颜色配置
+const brandColors = [
+  '#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399',
+  '#00d4ff', '#ff6b9d', '#c990ff', '#ffb800', '#00c9a7'
+]
+
+// 渲染趋势图 (支持多品牌对比)
 const renderTrendChart = () => {
   if (!trendChartRef.value || !marketDetail.value) return
 
-  trendChart = echarts.init(trendChartRef.value)
-  const trends = marketDetail.value.metrics?.monthlyTrends || []
+  if (!trendChart) {
+    trendChart = echarts.init(trendChartRef.value)
+  }
+
+  // 获取所有日期（使用市场总趋势的日期作为基准）
+  const allDates = marketDetail.value.metrics?.monthlyTrends?.map(t => t.date) || []
+  
+  const legendData = []
+  const series = []
+  
+  // 如果选择了"全部品牌"或没有选择任何品牌
+  if (selectedBrands.value.includes('all') || selectedBrands.value.length === 0) {
+    const trends = marketDetail.value.metrics?.monthlyTrends || []
+    legendData.push('总营收', '搜索量')
+    
+    series.push({
+      name: '总营收',
+      type: 'line',
+      data: trends.map(t => t.revenue),
+      smooth: true,
+      lineStyle: { width: 3 },
+      itemStyle: { color: '#409eff' },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ]
+        }
+      }
+    })
+    
+    series.push({
+      name: '搜索量',
+      type: 'line',
+      yAxisIndex: 1,
+      data: trends.map(t => t.searchVolume),
+      smooth: true,
+      lineStyle: { width: 3 },
+      itemStyle: { color: '#67c23a' }
+    })
+  } else {
+    // 显示选中的多个品牌
+    const validBrands = selectedBrands.value.filter(b => b !== 'all')
+    
+    validBrands.forEach((brandName, index) => {
+      const brand = marketDetail.value.brands?.find(b => b.brand === brandName)
+      if (brand && brand.monthlyTrends) {
+        const color = brandColors[index % brandColors.length]
+        legendData.push(brandName)
+        
+        series.push({
+          name: brandName,
+          type: 'line',
+          data: brand.monthlyTrends.map(t => t.revenue),
+          smooth: true,
+          lineStyle: { width: 3 },
+          itemStyle: { color: color },
+          emphasis: {
+            focus: 'series'
+          }
+        })
+      }
+    })
+    
+    // 如果选择了具体品牌，也显示总搜索量作为参考
+    if (validBrands.length > 0) {
+      const trends = marketDetail.value.metrics?.monthlyTrends || []
+      legendData.push('市场搜索量')
+      series.push({
+        name: '市场搜索量',
+        type: 'line',
+        yAxisIndex: 1,
+        data: trends.map(t => t.searchVolume),
+        smooth: true,
+        lineStyle: { width: 2, type: 'dashed' },
+        itemStyle: { color: '#67c23a' },
+        opacity: 0.6
+      })
+    }
+  }
 
   const option = {
     tooltip: {
       trigger: 'axis',
       axisPointer: {
         type: 'cross'
+      },
+      formatter: (params) => {
+        let result = params[0].axisValue + '<br/>'
+        params.forEach(param => {
+          if (param.seriesName.includes('搜索量')) {
+            result += `${param.marker}${param.seriesName}: ${formatNumber(param.value)}<br/>`
+          } else {
+            result += `${param.marker}${param.seriesName}: ${formatCurrency(param.value)}<br/>`
+          }
+        })
+        return result
       }
     },
     legend: {
-      data: ['营收', '搜索量']
+      data: legendData,
+      top: 10,
+      type: 'scroll'
     },
     grid: {
       left: '3%',
       right: '4%',
       bottom: '3%',
+      top: '60px',
       containLabel: true
     },
     xAxis: {
       type: 'category',
-      data: trends.map(t => t.month),
+      data: allDates,
       boundaryGap: false
     },
     yAxis: [
@@ -261,41 +417,15 @@ const renderTrendChart = () => {
         }
       }
     ],
-    series: [
-      {
-        name: '营收',
-        type: 'line',
-        data: trends.map(t => t.revenue),
-        smooth: true,
-        lineStyle: { width: 3 },
-        itemStyle: { color: '#409eff' },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
-              { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
-            ]
-          }
-        }
-      },
-      {
-        name: '搜索量',
-        type: 'line',
-        yAxisIndex: 1,
-        data: trends.map(t => t.searchVolume),
-        smooth: true,
-        lineStyle: { width: 3 },
-        itemStyle: { color: '#67c23a' }
-      }
-    ]
+    series: series
   }
 
-  trendChart.setOption(option)
+  trendChart.setOption(option, true)
+}
+
+// 处理品牌切换
+const handleBrandChange = () => {
+  renderTrendChart()
 }
 
 // 渲染饼图
@@ -342,8 +472,8 @@ const renderPieChart = () => {
           show: false
         },
         data: topBrands.map(brand => ({
-          name: brand.brandName,
-          value: brand.revenue || 0
+          name: brand.brand,
+          value: brand.totalRevenue || 0
         }))
       }
     ]
@@ -374,15 +504,16 @@ const renderBarChart = () => {
     grid: {
       left: '3%',
       right: '4%',
-      bottom: '3%',
+      bottom: '15%',
       containLabel: true
     },
     xAxis: {
       type: 'category',
-      data: topBrands.map(b => b.brandName),
+      data: topBrands.map(b => b.brand),
       axisLabel: {
         interval: 0,
-        rotate: 30
+        rotate: 45,
+        fontSize: 11
       }
     },
     yAxis: {
@@ -396,7 +527,7 @@ const renderBarChart = () => {
       {
         name: '营收',
         type: 'bar',
-        data: topBrands.map(b => b.revenue || 0),
+        data: topBrands.map(b => b.totalRevenue || 0),
         itemStyle: {
           color: {
             type: 'linear',
@@ -414,6 +545,7 @@ const renderBarChart = () => {
         label: {
           show: true,
           position: 'top',
+          fontSize: 10,
           formatter: (params) => '$' + (params.value / 1000).toFixed(0) + 'K'
         }
       }
@@ -446,9 +578,9 @@ const getCAGRType = (cagr) => {
   return 'danger'
 }
 
-const hasSocialMedia = (socialMedia) => {
-  if (!socialMedia) return false
-  return !!(socialMedia.youtubeChannel || socialMedia.instagram || socialMedia.facebook || socialMedia.reddit)
+const hasSocialMedia = (social) => {
+  if (!social) return false
+  return !!(social.youtube?.url || social.instagram?.url || social.facebook?.url || social.reddit?.url)
 }
 
 // 导航
@@ -490,6 +622,8 @@ onUnmounted(() => {
 <style scoped>
 .market-detail-container {
   padding: 20px;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .metric-card {
@@ -557,15 +691,15 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   color: white;
   transition: all 0.3s;
 }
 
 .social-icon:hover {
-  transform: scale(1.1);
+  transform: scale(1.15);
 }
 
 .social-icon.youtube {
@@ -582,5 +716,18 @@ onUnmounted(() => {
 
 .social-icon.reddit {
   background-color: #ff4500;
+}
+
+.website-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  cursor: pointer;
+}
+
+.website-link:hover {
+  transform: scale(1.2);
+  opacity: 0.8;
 }
 </style>

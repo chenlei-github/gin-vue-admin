@@ -99,7 +99,7 @@
 
             <el-table-column sortable align="left" label="品牌数量" prop="brandCount" width="120" />
 
-            <el-table-column sortable align="left" label="搜索量(最近月份)" prop="searchVolume" width="120" />
+            <el-table-column sortable align="left" label="月度搜索量总和" prop="searchVolume" width="120" />
 
             <el-table-column sortable align="left" label="年复合增长率(%)" prop="cagr" width="120" />
 
@@ -215,7 +215,7 @@
                     <el-descriptions-item label="品牌数量">
     {{ detailForm.brandCount }}
 </el-descriptions-item>
-                    <el-descriptions-item label="搜索量(最近月份)">
+                    <el-descriptions-item label="月度搜索量总和">
     {{ detailForm.searchVolume }}
 </el-descriptions-item>
                     <el-descriptions-item label="年复合增长率(%)">

@@ -149,9 +149,9 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 			return fmt.Errorf("获取关键词ID失败: %v", err)
 		}
 
-		// 创建搜索量映射
+		// 创建搜索量映射：key为日期字符串，value为该月所有关键词的搜索量总和
 		searchVolumeMap := make(map[string]int)
-		
+
 		if len(keywordIDs) > 0 {
 			type MonthlySearchVolume struct {
 				Date   time.Time
@@ -170,7 +170,7 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 				return fmt.Errorf("聚合搜索量数据失败: %v", err)
 			}
 
-			// 填充搜索量映射
+			// 填充搜索量映射：每个月份对应该月的搜索量总和
 			for _, sv := range searchVolumes {
 				key := sv.Date.Format("2006-01-02")
 				searchVolumeMap[key] = sv.Volume
@@ -182,7 +182,7 @@ func (s *BtAggregateService) AggregateBrandToMarket(marketID int64) error {
 			date := sum.Date
 			revenue := sum.TotalSales
 
-			// 获取该月的搜索量
+			// 获取该月份对应的搜索量（而不是最新月份的搜索量）
 			dateKey := date.Format("2006-01-02")
 			searchVolume := searchVolumeMap[dateKey]
 
@@ -270,8 +270,8 @@ func (s *BtAggregateService) CalculateBrandCAGR(marketID int64) error {
 			}
 
 			// 计算年数：使用前12个月的中点和后12个月的中点之间的时间差
-			firstDate := trends[5].Date  // 前12个月的中点
-			lastDate := trends[len(trends)-6].Date  // 后12个月的中点
+			firstDate := trends[5].Date            // 前12个月的中点
+			lastDate := trends[len(trends)-6].Date // 后12个月的中点
 			if firstDate == nil || lastDate == nil {
 				continue
 			}
@@ -346,8 +346,8 @@ func (s *BtAggregateService) CalculateMarketCAGR(marketID int64) error {
 		}
 
 		// 计算年数：使用前12个月的中点和后12个月的中点之间的时间差
-		firstDate := trends[5].Date  // 前12个月的中点
-		lastDate := trends[len(trends)-6].Date  // 后12个月的中点
+		firstDate := trends[5].Date            // 前12个月的中点
+		lastDate := trends[len(trends)-6].Date // 后12个月的中点
 		if firstDate == nil || lastDate == nil {
 			return nil
 		}
@@ -451,11 +451,15 @@ func (s *BtAggregateService) UpdateMarketMetrics(marketID int64) error {
 			return fmt.Errorf("查询市场月度趋势失败: %v", err)
 		}
 
-		// 计算最近12个月的总销售额
+		// 计算最近12个月的总销售额和总搜索量
 		var totalRevenue float64
+		var searchVolume int64
 		for _, trend := range trends {
 			if trend.Revenue != nil {
 				totalRevenue += *trend.Revenue
+			}
+			if trend.SearchVolume != nil {
+				searchVolume += *trend.SearchVolume
 			}
 		}
 
@@ -479,11 +483,12 @@ func (s *BtAggregateService) UpdateMarketMetrics(marketID int64) error {
 			return fmt.Errorf("计算商品数量失败: %v", err)
 		}
 
-		// 4. 获取最新月份的搜索量（数据中的最新日期，而不是当前时间）
-		var searchVolume int64
-		if len(trends) > 0 && trends[0].SearchVolume != nil {
-			searchVolume = *trends[0].SearchVolume
-		}
+		//// 4. 获取最新月份的搜索量（数据中的最新日期，而不是当前时间）
+		//// 注意：trends 已经按 date DESC 排序，所以 trends[0] 是最新月份
+		//var searchVolume int64
+		//if len(trends) > 0 && trends[0].SearchVolume != nil {
+		//	searchVolume = *trends[0].SearchVolume
+		//}
 
 		// 5. 更新市场记录
 		updates := map[string]interface{}{

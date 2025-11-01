@@ -1,6 +1,7 @@
 package brandtrekin
 
 import (
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"strings"
@@ -366,6 +367,20 @@ func (s *BtImportService) SaveProductDataBatch(marketID int64, products []Produc
 				brandID := brandMap[p.Brand]
 				reviews := int64(p.Reviews)
 				monthlySales := int64(p.MonthlySales)
+				
+				// 处理扩展数据JSON
+				var extendedDataJSON string
+				if len(p.ExtendedData) > 0 {
+					if jsonBytes, err := json.Marshal(p.ExtendedData); err == nil {
+						extendedDataJSON = string(jsonBytes)
+					} else {
+						// 如果JSON序列化失败，使用空JSON对象
+						extendedDataJSON = "{}"
+					}
+				} else {
+					extendedDataJSON = "{}"
+				}
+				
 				product := brandtrekin.BtProduct{
 					MarketId:     &marketID,
 					BrandId:      &brandID,
@@ -376,6 +391,7 @@ func (s *BtImportService) SaveProductDataBatch(marketID int64, products []Produc
 					Reviews:      &reviews,
 					MonthlySales: &monthlySales,
 					ImageUrl:     p.ImageUrl,
+					ExtendedData: extendedDataJSON,
 				}
 
 				if existingMap[p.ASIN] {

@@ -50,12 +50,13 @@ type MarketListItem struct {
 
 // BrandSummary 品牌摘要（用于市场详情中的品牌列表）
 type BrandSummary struct {
-	Brand        string       `json:"brand"`
-	TotalRevenue float64      `json:"totalRevenue"`
-	ProductCount int          `json:"productCount"`
-	CAGR         *float64     `json:"cagr"`
-	Website      *string      `json:"website,omitempty"`
-	Social       *SocialMedia `json:"social,omitempty"`
+	Brand         string         `json:"brand"`
+	TotalRevenue  float64        `json:"totalRevenue"`
+	ProductCount  int            `json:"productCount"`
+	CAGR          *float64       `json:"cagr"`
+	Website       *string        `json:"website,omitempty"`
+	Social        *SocialMedia   `json:"social,omitempty"`
+	MonthlyTrends []MonthlyTrend `json:"monthlyTrends,omitempty"`
 }
 
 // MarketDetail 市场详情

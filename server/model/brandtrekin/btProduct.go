@@ -17,6 +17,7 @@ type BtProduct struct {
   Reviews  *int64 `json:"reviews" form:"reviews" gorm:"default:0;comment:评论数;column:reviews;"`  //评论数
   MonthlySales  *int64 `json:"monthlySales" form:"monthlySales" gorm:"default:0;comment:月销量;column:monthly_sales;"`  //月销量
   ImageUrl  string `json:"imageUrl" form:"imageUrl" gorm:"comment:图片URL;column:image_url;size:500;"`  //商品图片
+  ExtendedData  string `json:"extendedData" form:"extendedData" gorm:"type:json;comment:扩展数据(JSON格式);column:extended_data;"`  //扩展数据，存储Excel中的其他字段
 }
 
 

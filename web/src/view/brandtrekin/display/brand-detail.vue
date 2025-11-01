@@ -7,7 +7,7 @@
           <el-icon class="mr-1"><ArrowLeft /></el-icon>
           返回
         </el-button>
-        <h2 class="ml-4 text-2xl font-bold">{{ brandDetail?.brandName || '品牌详情' }}</h2>
+        <h2 class="ml-4 text-2xl font-bold">{{ brandDetail?.brand || '品牌详情' }}</h2>
       </div>
       <el-button v-if="brandDetail?.website" type="primary" @click="openWebsite">
         <el-icon class="mr-1"><Link /></el-icon>
@@ -80,14 +80,14 @@
       <!-- 销售趋势图 -->
       <el-card class="mb-6">
         <template #header>
-          <span class="font-bold">品牌销售趋势</span>
+          <span class="font-bold">品牌营收趋势</span>
         </template>
         <div ref="salesTrendRef" class="chart-container"></div>
       </el-card>
 
       <!-- 社交媒体卡片 -->
       <div v-if="hasSocialMedia" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <el-card v-if="brandDetail?.socialMedia?.youtubeChannel" shadow="hover" class="social-card youtube-card">
+        <el-card v-if="brandDetail?.social?.youtube" shadow="hover" class="social-card youtube-card">
           <template #header>
             <div class="flex items-center gap-2">
               <el-icon :size="24" color="#ff0000"><VideoPlay /></el-icon>
@@ -97,19 +97,15 @@
           <div class="social-content">
             <div class="social-stat">
               <div class="stat-label">订阅数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.youtubeSubscribers) }}</div>
+              <div class="stat-value">{{ formatNumber(brandDetail.social.youtube.subscribers) }}</div>
             </div>
-            <div class="social-stat">
-              <div class="stat-label">视频数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.youtubeVideos) }}</div>
-            </div>
-            <el-button type="danger" class="w-full mt-3" @click="openLink(brandDetail.socialMedia.youtubeChannel)">
+            <el-button type="danger" class="w-full mt-3" @click="openLink(brandDetail.social.youtube.url)">
               访问频道
             </el-button>
           </div>
         </el-card>
 
-        <el-card v-if="brandDetail?.socialMedia?.instagram" shadow="hover" class="social-card instagram-card">
+        <el-card v-if="brandDetail?.social?.instagram" shadow="hover" class="social-card instagram-card">
           <template #header>
             <div class="flex items-center gap-2">
               <el-icon :size="24" color="#e4405f"><PictureFilled /></el-icon>
@@ -119,19 +115,19 @@
           <div class="social-content">
             <div class="social-stat">
               <div class="stat-label">粉丝数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.instagramFollowers) }}</div>
+              <div class="stat-value">{{ formatNumber(brandDetail.social.instagram.followers) }}</div>
             </div>
-            <div class="social-stat">
+            <div class="social-stat" v-if="brandDetail.social.instagram.posts">
               <div class="stat-label">帖子数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.instagramPosts) }}</div>
+              <div class="stat-value">{{ formatNumber(brandDetail.social.instagram.posts) }}</div>
             </div>
-            <el-button type="danger" class="w-full mt-3" @click="openLink(brandDetail.socialMedia.instagram)">
+            <el-button type="danger" class="w-full mt-3" @click="openLink(brandDetail.social.instagram.url)">
               访问主页
             </el-button>
           </div>
         </el-card>
 
-        <el-card v-if="brandDetail?.socialMedia?.facebook" shadow="hover" class="social-card facebook-card">
+        <el-card v-if="brandDetail?.social?.facebook" shadow="hover" class="social-card facebook-card">
           <template #header>
             <div class="flex items-center gap-2">
               <el-icon :size="24" color="#1877f2"><User /></el-icon>
@@ -141,15 +137,15 @@
           <div class="social-content">
             <div class="social-stat">
               <div class="stat-label">粉丝数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.facebookFollowers) }}</div>
+              <div class="stat-value">{{ formatNumber(brandDetail.social.facebook.followers) }}</div>
             </div>
-            <el-button type="primary" class="w-full mt-3" @click="openLink(brandDetail.socialMedia.facebook)">
+            <el-button type="primary" class="w-full mt-3" @click="openLink(brandDetail.social.facebook.url)">
               访问主页
             </el-button>
           </div>
         </el-card>
 
-        <el-card v-if="brandDetail?.socialMedia?.reddit" shadow="hover" class="social-card reddit-card">
+        <el-card v-if="brandDetail?.social?.reddit" shadow="hover" class="social-card reddit-card">
           <template #header>
             <div class="flex items-center gap-2">
               <el-icon :size="24" color="#ff4500"><ChatDotRound /></el-icon>
@@ -158,10 +154,10 @@
           </template>
           <div class="social-content">
             <div class="social-stat">
-              <div class="stat-label">成员数</div>
-              <div class="stat-value">{{ formatNumber(brandDetail.socialMedia.redditMembers) }}</div>
+              <div class="stat-label">帖子数</div>
+              <div class="stat-value">{{ formatNumber(brandDetail.social.reddit.posts) }}</div>
             </div>
-            <el-button type="warning" class="w-full mt-3" @click="openLink(brandDetail.socialMedia.reddit)">
+            <el-button type="warning" class="w-full mt-3" @click="openLink(brandDetail.social.reddit.url)">
               访问社区
             </el-button>
           </div>
@@ -194,12 +190,11 @@
           >
             <div class="product-image-wrapper">
               <img
-                :src="product.image || '/placeholder-product.png'"
+                :src="product.imageUrl || '/placeholder-product.png'"
                 :alt="product.title"
                 class="product-image"
                 @error="handleImageError"
               />
-              <div class="product-rank">排名 #{{ product.rank }}</div>
             </div>
             <div class="product-content">
               <h4 class="product-title">{{ product.title }}</h4>
@@ -211,11 +206,11 @@
                 </div>
               </div>
               <div class="product-revenue">
-                <span class="text-xs text-gray-500">月均营收:</span>
-                <span class="font-bold text-green-600">{{ formatCurrency(product.avgRevenue) }}</span>
+                <span class="text-xs text-gray-500">月销量:</span>
+                <span class="font-bold text-green-600">{{ formatNumber(product.monthlySales) }}</span>
               </div>
               <!-- 产品销售趋势迷你图 -->
-              <div class="product-trend" :ref="(el) => setProductChartRef(el, product.asin)"></div>
+              <div v-if="product.salesTrend && product.salesTrend.length > 0" class="product-trend" :ref="(el) => setProductChartRef(el, product.asin)"></div>
               <el-button type="primary" link class="w-full mt-2" @click="openAmazonLink(product.asin)">
                 在Amazon查看
               </el-button>
@@ -266,8 +261,8 @@ const setProductChartRef = (el, asin) => {
 
 // 计算属性
 const hasSocialMedia = computed(() => {
-  const sm = brandDetail.value?.socialMedia
-  return !!(sm?.youtubeChannel || sm?.instagram || sm?.facebook || sm?.reddit)
+  const sm = brandDetail.value?.social
+  return !!(sm?.youtube || sm?.instagram || sm?.facebook || sm?.reddit)
 })
 
 const filteredProducts = computed(() => {
@@ -310,7 +305,7 @@ const renderSalesTrendChart = () => {
   if (!salesTrendRef.value || !brandDetail.value) return
 
   salesTrendChart = echarts.init(salesTrendRef.value)
-  const trends = brandDetail.value.salesTrends || []
+  const trends = brandDetail.value.monthlyTrends || []
 
   const option = {
     tooltip: {
@@ -328,7 +323,7 @@ const renderSalesTrendChart = () => {
     },
     xAxis: {
       type: 'category',
-      data: trends.map(t => t.month),
+      data: trends.map(t => t.date),
       boundaryGap: false
     },
     yAxis: {
@@ -370,7 +365,7 @@ const renderProductTrendCharts = () => {
 
   brandDetail.value.products.forEach(product => {
     const chartEl = productChartRefs.value[product.asin]
-    if (!chartEl || !product.salesTrends) return
+    if (!chartEl || !product.salesTrend || product.salesTrend.length === 0) return
 
     const chart = echarts.init(chartEl)
     productCharts[product.asin] = chart
@@ -380,7 +375,7 @@ const renderProductTrendCharts = () => {
       xAxis: {
         type: 'category',
         show: false,
-        data: product.salesTrends.map(t => t.month)
+        data: product.salesTrend.map(t => t.date)
       },
       yAxis: {
         type: 'value',
@@ -388,7 +383,7 @@ const renderProductTrendCharts = () => {
       },
       series: [{
         type: 'line',
-        data: product.salesTrends.map(t => t.revenue),
+        data: product.salesTrend.map(t => t.sales),
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2, color: '#67c23a' },
@@ -414,8 +409,9 @@ const renderProductTrendCharts = () => {
 
 // 工具函数
 const formatCurrency = (value) => {
-  if (!value && value !== 0) return '$0'
-  return '$' + value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  if (!value && value !== 0) return '-'
+  if (value === 0) return '-'
+  return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const formatNumber = (value) => {
@@ -492,6 +488,8 @@ onUnmounted(() => {
 <style scoped>
 .brand-detail-container {
   padding: 20px;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .metric-card {

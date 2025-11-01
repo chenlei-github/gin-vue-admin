@@ -3,6 +3,7 @@ package brandtrekin
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -61,6 +62,7 @@ type ProductInfo struct {
 	Reviews      int
 	ImageUrl     string
 	MonthlySales int
+	ExtendedData map[string]interface{} // 存储Excel中的额外字段
 }
 
 // KeywordInfo 关键词信息
@@ -165,8 +167,8 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 			brand.YoutubeUrl = strings.TrimSpace(row[idx])
 		}
 		if idx, ok := colMap["YouTube Subscribers"]; ok && idx < len(row) && row[idx] != "" {
-			if subs, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.YoutubeSubscribers = subs
+			if subs, valid := parseNumericValue(row[idx]); valid {
+				brand.YoutubeSubscribers = int(subs)
 			}
 		}
 
@@ -177,8 +179,8 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 			brand.InstagramUrl = strings.TrimSpace(row[idx])
 		}
 		if idx, ok := colMap["Instagram Followers"]; ok && idx < len(row) && row[idx] != "" {
-			if followers, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.InstagramFollowers = followers
+			if followers, valid := parseNumericValue(row[idx]); valid {
+				brand.InstagramFollowers = int(followers)
 			}
 		}
 
@@ -190,12 +192,12 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 		}
 		// 支持"Facebook Followers/Likes"和"Facebook Followers"两种列名
 		if idx, ok := colMap["Facebook Followers/Likes"]; ok && idx < len(row) && row[idx] != "" {
-			if followers, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.FacebookFollowers = followers
+			if followers, valid := parseNumericValue(row[idx]); valid {
+				brand.FacebookFollowers = int(followers)
 			}
 		} else if idx, ok := colMap["Facebook Followers"]; ok && idx < len(row) && row[idx] != "" {
-			if followers, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.FacebookFollowers = followers
+			if followers, valid := parseNumericValue(row[idx]); valid {
+				brand.FacebookFollowers = int(followers)
 			}
 		}
 
@@ -207,12 +209,12 @@ func (s *BtImportService) ParseBrandSocial(file *multipart.FileHeader) (*ImportR
 		}
 		// 支持"Reddit Mentions (approx)"和"Reddit Posts"两种列名
 		if idx, ok := colMap["Reddit Mentions (approx)"]; ok && idx < len(row) && row[idx] != "" {
-			if posts, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.RedditPosts = posts
+			if posts, valid := parseNumericValue(row[idx]); valid {
+				brand.RedditPosts = int(posts)
 			}
 		} else if idx, ok := colMap["Reddit Posts"]; ok && idx < len(row) && row[idx] != "" {
-			if posts, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				brand.RedditPosts = posts
+			if posts, valid := parseNumericValue(row[idx]); valid {
+				brand.RedditPosts = int(posts)
 			}
 		}
 
@@ -405,9 +407,9 @@ func (s *BtImportService) ParseGKW(file *multipart.FileHeader) (*ImportResult, e
 				continue
 			}
 
-			// 解析搜索量（支持带小数点的数字，如 "14800.0"）
-			volumeFloat, err := strconv.ParseFloat(value, 64)
-			if err != nil {
+			// 解析搜索量（支持带小数点的数字和千位分隔符，如 "14,800.0"）
+			volumeFloat, valid := parseNumericValue(value)
+			if !valid {
 				// 如果解析失败，记录错误但继续处理
 				rowErrors = append(rowErrors, RowError{
 					Row:   i + 2, // +2 因为跳过了header行，且行号从1开始
@@ -556,10 +558,11 @@ func (s *BtImportService) ParseKeywordHistory(file *multipart.FileHeader) (*Impo
 				continue
 			}
 
-			volumeNum, err := strconv.Atoi(strings.TrimSpace(volume))
-			if err != nil || volumeNum <= 0 {
+			volumeFloat, valid := parseNumericValue(volume)
+			if !valid || volumeFloat <= 0 {
 				continue
 			}
+			volumeNum := int(volumeFloat)
 
 			// 获取关键词（优先使用数据行中的关键词，否则使用sheet名称）
 			keyword := keywordFromSheet
@@ -624,7 +627,7 @@ func (s *BtImportService) ParseKeywordHistory(file *multipart.FileHeader) (*Impo
 	}, nil
 }
 
-// ParseProductUS 解析美国商品数据
+// ParseProductUS 解析商品数据
 func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportResult, error) {
 	src, err := file.Open()
 	if err != nil {
@@ -756,37 +759,62 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 			Brand: brand,
 		}
 
-		// 提取可选字段（支持中英文列名）
-		// 价格
-		if idx, ok := colMap["价格"]; ok && idx < len(row) && row[idx] != "" {
-			if price, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
-				product.Price = price
-			}
-		} else if idx, ok := colMap["Price"]; ok && idx < len(row) && row[idx] != "" {
-			if price, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
-				product.Price = price
-			}
+	// 提取可选字段（支持中英文列名）
+	// 价格（支持"价格"、"价格($)"、"Price"等列名）
+	// 注意：需要移除千位分隔符（逗号）后再解析
+	if idx, ok := colMap["价格($)"]; ok && idx < len(row) && row[idx] != "" {
+		// 移除千位分隔符和货币符号
+		priceStr := strings.TrimSpace(row[idx])
+		priceStr = strings.ReplaceAll(priceStr, ",", "")
+		priceStr = strings.TrimPrefix(priceStr, "$")
+		priceStr = strings.TrimSpace(priceStr)
+		
+		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			product.Price = price
 		}
+	} else if idx, ok := colMap["价格"]; ok && idx < len(row) && row[idx] != "" {
+		priceStr := strings.TrimSpace(row[idx])
+		priceStr = strings.ReplaceAll(priceStr, ",", "")
+		priceStr = strings.TrimPrefix(priceStr, "$")
+		priceStr = strings.TrimSpace(priceStr)
+		
+		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			product.Price = price
+		}
+	} else if idx, ok := colMap["Price"]; ok && idx < len(row) && row[idx] != "" {
+		priceStr := strings.TrimSpace(row[idx])
+		priceStr = strings.ReplaceAll(priceStr, ",", "")
+		priceStr = strings.TrimPrefix(priceStr, "$")
+		priceStr = strings.TrimSpace(priceStr)
+		
+		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			product.Price = price
+		}
+	}
 
-		// 评分
+		// 评分（支持"评分"、"Rating"等列名）
 		if idx, ok := colMap["评分"]; ok && idx < len(row) && row[idx] != "" {
-			if rating, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
+			if rating, valid := parseNumericValue(row[idx]); valid {
 				product.Rating = rating
 			}
 		} else if idx, ok := colMap["Rating"]; ok && idx < len(row) && row[idx] != "" {
-			if rating, err := strconv.ParseFloat(strings.TrimSpace(row[idx]), 64); err == nil {
+			if rating, valid := parseNumericValue(row[idx]); valid {
 				product.Rating = rating
 			}
 		}
 
-		// 评论数
-		if idx, ok := colMap["评论数"]; ok && idx < len(row) && row[idx] != "" {
-			if reviews, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				product.Reviews = reviews
+		// 评论数（支持"评分数"、"评论数"、"Reviews"等列名）
+		if idx, ok := colMap["评分数"]; ok && idx < len(row) && row[idx] != "" {
+			if reviews, valid := parseNumericValue(row[idx]); valid {
+				product.Reviews = int(reviews)
+			}
+		} else if idx, ok := colMap["评论数"]; ok && idx < len(row) && row[idx] != "" {
+			if reviews, valid := parseNumericValue(row[idx]); valid {
+				product.Reviews = int(reviews)
 			}
 		} else if idx, ok := colMap["Reviews"]; ok && idx < len(row) && row[idx] != "" {
-			if reviews, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				product.Reviews = reviews
+			if reviews, valid := parseNumericValue(row[idx]); valid {
+				product.Reviews = int(reviews)
 			}
 		}
 
@@ -799,15 +827,46 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 
 		// 月销量
 		if idx, ok := colMap["月销量"]; ok && idx < len(row) && row[idx] != "" {
-			if sales, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				product.MonthlySales = sales
+			if sales, valid := parseNumericValue(row[idx]); valid {
+				product.MonthlySales = int(sales)
 			}
 		} else if idx, ok := colMap["Monthly Sales"]; ok && idx < len(row) && row[idx] != "" {
-			if sales, err := strconv.Atoi(strings.TrimSpace(row[idx])); err == nil {
-				product.MonthlySales = sales
+			if sales, valid := parseNumericValue(row[idx]); valid {
+				product.MonthlySales = int(sales)
 			}
 		}
 
+		// 收集扩展数据（Excel中的其他字段）
+		extendedData := make(map[string]interface{})
+		
+		// 定义已处理的核心字段，避免重复存储
+		coreFields := map[string]bool{
+			"ASIN": true, "品牌": true, "Brand": true, "商品标题": true, "Title": true,
+			"价格($)": true, "价格": true, "Price": true, "评分": true, "Rating": true,
+			"评分数": true, "评论数": true, "Reviews": true, "商品主图": true, "Image": true,
+			"月销量": true, "Monthly Sales": true,
+		}
+		
+		// 遍历所有列，收集未处理的字段
+		for colName, colIdx := range colMap {
+			if colName == "" || coreFields[colName] {
+				continue // 跳过空列名和核心字段
+			}
+			
+			if colIdx < len(row) {
+				cellValue := strings.TrimSpace(row[colIdx])
+				if cellValue != "" {
+					// 尝试解析为数字，如果失败则保存为字符串
+					if numValue, valid := parseNumericValue(cellValue); valid && numValue != 0 {
+						extendedData[colName] = numValue
+					} else {
+						extendedData[colName] = cellValue
+					}
+				}
+			}
+		}
+		
+		product.ExtendedData = extendedData
 		products = append(products, product)
 	}
 
@@ -830,43 +889,43 @@ func (s *BtImportService) ParseProductUS(file *multipart.FileHeader) (*ImportRes
 func parseNumericValue(value string) (float64, bool) {
 	// 去除前后空格
 	value = strings.TrimSpace(value)
-	
+
 	// 空值返回0
 	if value == "" {
 		return 0, true
 	}
-	
+
 	// 去除常见的货币符号
 	value = strings.TrimPrefix(value, "$")
 	value = strings.TrimPrefix(value, "￥")
 	value = strings.TrimPrefix(value, "€")
 	value = strings.TrimPrefix(value, "£")
 	value = strings.TrimSpace(value)
-	
+
 	// 去除千位分隔符（英文逗号）
 	value = strings.ReplaceAll(value, ",", "")
-	
+
 	// 尝试解析为浮点数
 	result, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return 0, false
 	}
-	
+
 	// 确保非负数
 	if result < 0 {
 		return 0, false
 	}
-	
+
 	return result, true
 }
 
 // processSheet 通用的sheet处理函数，用于处理销量或销售额sheet
 // isVolumeSheet: true表示销量sheet，false表示销售额sheet
-func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVolumeSheet bool, 
+func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVolumeSheet bool,
 	salesMap map[string]*ProductSalesInfo, datePattern *regexp.Regexp) []RowError {
-	
+
 	var rowErrors []RowError
-	
+
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		rowErrors = append(rowErrors, RowError{
@@ -875,34 +934,34 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 		})
 		return rowErrors
 	}
-	
+
 	if len(rows) < 2 {
 		return rowErrors
 	}
-	
+
 	// 第一步：建立列索引映射（只遍历一次表头）
 	header := rows[0]
 	asinCol := -1
 	dateColumns := make(map[int]time.Time) // 列索引 -> 日期
-	
+
 	for i, col := range header {
 		col = strings.TrimSpace(col)
-		
+
 		if col == "ASIN" {
 			asinCol = i
 			continue
 		}
-		
+
 		// 跳过非数据列
-		if col == "图片" || col == "SKU" || col == "URL" || 
+		if col == "图片" || col == "SKU" || col == "URL" ||
 			col == "所属类目" || col == "商品标题" || col == "" {
 			continue
 		}
-		
+
 		// 提取日期（去除末尾的($)符号）
 		dateStr := strings.TrimSuffix(col, "($)")
 		dateStr = strings.TrimSpace(dateStr)
-		
+
 		// 匹配日期格式
 		if datePattern.MatchString(dateStr) {
 			if date, err := time.Parse("2006-01", dateStr); err == nil {
@@ -910,7 +969,7 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 			}
 		}
 	}
-	
+
 	// 验证必填列
 	if asinCol < 0 {
 		rowErrors = append(rowErrors, RowError{
@@ -919,21 +978,21 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 		})
 		return rowErrors
 	}
-	
+
 	// 第二步：遍历数据行（从第2行开始）
 	for rowIdx := 1; rowIdx < len(rows); rowIdx++ {
 		row := rows[rowIdx]
-		
+
 		// 跳过空行或ASIN列超出范围的行
 		if len(row) == 0 || asinCol >= len(row) {
 			continue
 		}
-		
+
 		asin := strings.TrimSpace(row[asinCol])
 		if asin == "" {
 			continue
 		}
-		
+
 		// 获取或创建该ASIN的销售数据记录
 		salesInfo, exists := salesMap[asin]
 		if !exists {
@@ -943,7 +1002,7 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 			}
 			salesMap[asin] = salesInfo
 		}
-		
+
 		// 第三步：遍历所有日期列，提取数据
 		for colIdx, date := range dateColumns {
 			// 获取单元格值
@@ -951,21 +1010,21 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 			if colIdx < len(row) {
 				cellValue = row[colIdx]
 			}
-			
+
 			// 解析数值
 			numValue, valid := parseNumericValue(cellValue)
 			if !valid {
 				// 记录解析错误（可选）
 				if cellValue != "" {
 					rowErrors = append(rowErrors, RowError{
-						Row:   rowIdx + 1,
-						Error: fmt.Sprintf("ASIN %s 的 %s 列值 '%s' 无法解析为数字", 
+						Row: rowIdx + 1,
+						Error: fmt.Sprintf("ASIN %s 的 %s 列值 '%s' 无法解析为数字",
 							asin, date.Format("2006-01"), cellValue),
 					})
 				}
 				continue
 			}
-			
+
 			// 查找或创建该月份的销售记录
 			found := false
 			for j := range salesInfo.MonthlySales {
@@ -981,7 +1040,7 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 					break
 				}
 			}
-			
+
 			// 如果不存在该月份的记录，创建新记录
 			if !found {
 				newRecord := MonthlySales{
@@ -998,7 +1057,7 @@ func (s *BtImportService) processSheet(f *excelize.File, sheetName string, isVol
 			}
 		}
 	}
-	
+
 	return rowErrors
 }
 
@@ -1033,7 +1092,7 @@ func (s *BtImportService) ParseProductSales(file *multipart.FileHeader) (*Import
 
 	// 编译日期正则表达式（只编译一次）
 	datePattern := regexp.MustCompile(`^\d{4}-\d{2}`)
-	
+
 	// 使用map按ASIN分组，避免重复查找
 	salesMap := make(map[string]*ProductSalesInfo)
 	var rowErrors []RowError
@@ -1205,6 +1264,20 @@ func (s *BtImportService) SaveProductData(tx *gorm.DB, marketID int64, products 
 
 		brandID := int64(brand.ID)
 
+		// 序列化扩展数据为JSON
+		var extendedDataJSON string
+		if len(productData.ExtendedData) > 0 {
+			if jsonBytes, err := json.Marshal(productData.ExtendedData); err == nil {
+				extendedDataJSON = string(jsonBytes)
+			} else {
+				// 如果JSON序列化失败，记录错误但继续处理
+				fmt.Printf("警告: ASIN %s 的扩展数据JSON序列化失败: %v\n", productData.ASIN, err)
+				extendedDataJSON = "{}"
+			}
+		} else {
+			extendedDataJSON = "{}"
+		}
+
 		// 创建或更新商品
 		reviews := int64(productData.Reviews)
 		monthlySales := int64(productData.MonthlySales)
@@ -1218,6 +1291,7 @@ func (s *BtImportService) SaveProductData(tx *gorm.DB, marketID int64, products 
 			Reviews:      &reviews,
 			MonthlySales: &monthlySales,
 			ImageUrl:     productData.ImageUrl,
+			ExtendedData: extendedDataJSON,
 		}
 
 		// 查找或创建商品
