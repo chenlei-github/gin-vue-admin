@@ -2,7 +2,7 @@
   <div class="market-detail-container">
     <!-- 返回按钮和标题 -->
     <div class="mb-4 flex items-center">
-      <el-button @click="goBack">
+      <el-button @click="goBack" text>
         <el-icon class="mr-1"><ArrowLeft /></el-icon>
         返回
       </el-button>
@@ -241,6 +241,8 @@ const barChartRef = ref(null)
 let trendChart = null
 let pieChart = null
 let barChart = null
+
+
 
 // 加载市场详情
 const loadMarketDetail = async () => {

@@ -5,6 +5,10 @@ import router from '@/router'
 import Nprogress from 'nprogress'
 import 'nprogress/nprogress.css'
 
+// 主题控制变量
+let originalThemeClass = ''
+let isInClientPage = false
+
 // 配置 NProgress
 Nprogress.configure({
   showSpinner: false,
@@ -181,6 +185,15 @@ router.beforeEach(async (to, from) => {
   document.title = getPageTitle(to.meta.title, to)
 
   if (to.meta.client) {
+    // 为公开页面强制设置白色主题
+    const htmlElement = document.documentElement
+    if (!isInClientPage) {
+      // 保存原始主题状态
+      originalThemeClass = htmlElement.classList.contains('dark') ? 'dark' : 'light'
+      isInClientPage = true
+    }
+    htmlElement.classList.remove('dark')
+    htmlElement.classList.add('light')
     return true
   }
 
@@ -232,8 +245,19 @@ router.beforeEach(async (to, from) => {
 })
 
 // 路由加载完成
-router.afterEach(() => {
+router.afterEach((to, from) => {
   document.querySelector('.main-cont.main-right')?.scrollTo(0, 0)
+  
+  // 如果从公开页面离开到非公开页面，恢复原始主题
+  if (from.meta?.client && !to.meta?.client && isInClientPage) {
+    const htmlElement = document.documentElement
+    htmlElement.classList.remove('light')
+    if (originalThemeClass === 'dark') {
+      htmlElement.classList.add('dark')
+    }
+    isInClientPage = false
+  }
+  
   Nprogress.done()
 })
 

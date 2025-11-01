@@ -153,6 +153,8 @@ const totalRevenue = ref(0)
 const totalProducts = ref(0)
 const totalSearchVolume = ref(0)
 
+
+
 // 设置图表引用
 const setChartRef = (el, id) => {
   if (el) {

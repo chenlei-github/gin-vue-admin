@@ -3,7 +3,7 @@
     <!-- 返回按钮和标题 -->
     <div class="mb-4 flex items-center justify-between">
       <div class="flex items-center">
-        <el-button @click="goBack">
+        <el-button @click="goBack" text>
           <el-icon class="mr-1"><ArrowLeft /></el-icon>
           返回
         </el-button>
@@ -251,6 +251,8 @@ const productChartRefs = ref({})
 
 let salesTrendChart = null
 const productCharts = {}
+
+
 
 // 设置产品图表引用
 const setProductChartRef = (el, asin) => {

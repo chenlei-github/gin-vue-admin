@@ -29,7 +29,8 @@ const routes = [
     name: 'MarketList',
     meta: {
       title: '市场列表',
-      keepAlive: true
+      keepAlive: true,
+      client: true
     },
     component: () => import('@/view/brandtrekin/display/market-list.vue')
   },
@@ -38,7 +39,8 @@ const routes = [
     name: 'MarketDetail',
     meta: {
       title: '市场详情',
-      keepAlive: false
+      keepAlive: false,
+      client: true
     },
     component: () => import('@/view/brandtrekin/display/market-detail.vue')
   },
@@ -47,7 +49,8 @@ const routes = [
     name: 'BrandDetail',
     meta: {
       title: '品牌详情',
-      keepAlive: false
+      keepAlive: false,
+      client: true
     },
     component: () => import('@/view/brandtrekin/display/brand-detail.vue')
   },
